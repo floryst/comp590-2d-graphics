@@ -33,14 +33,6 @@ public:
 			delete[] this->pixref;
 	}
 
-	/*
-	 * Must place these functions inside class def for overriding 
-	 * the pure virtual functions defined in GContext.
-	 */
-
-	/*
-	 * the const keyword means getBitmap will NOT change *this
-	 */
 	void getBitmap(GBitmap* bitmap) const {
 		*bitmap = this->gbitmap;
 	}
@@ -65,8 +57,6 @@ public:
 			((int)(alpha*blue*255.0f+0.5f) << GPIXEL_SHIFT_B);
 
 		int x,y;
-		// The slop is merely the stride of the array minus the number of bytes actually used in the bitmap.
-		//int slopBytes = this->gbitmap.fRowBytes - this->gbitmap.fWidth * sizeof(GPixel);
 		for (y=0; y < this->gbitmap.fHeight; y++) {
 			for (x=0; x < this->gbitmap.fWidth; x++) {
 				this->gbitmap.fPixels[y*(this->gbitmap.fRowBytes/sizeof(GPixel))+x]=cpixel;
@@ -75,15 +65,6 @@ public:
 	}
 
 private:
-	/*
-	 * GBitmap b1;
-	 * GBitmap b2=b1;
-	 * &b2!=&b1
-	 */
-	/*
-	 * Our destructor can free up GBitmap objects, but
-	 * cannot free pointer to GBitmap.
-	 */
 	// our bitmap
 	GBitmap gbitmap;
 	// used as a reference to clear the bitmap pixels.
@@ -106,10 +87,8 @@ GContext* GContext::Create(const GBitmap& bitmap) {
 GContext* GContext::Create(int width, int height) {
 	if (width <= 0 || height <= 0)
 		return NULL;
-	// same as GBitmap* bitmap = (GBitmap*)malloc(sizeof(GBitmap))
 	GBitmap bitmap;
 
-	// pixels array is created only in the current stack frame, will be destroyed after function end.
 	bitmap.fWidth = width;
 	bitmap.fHeight = height;
 	bitmap.fPixels = new GPixel[width * height];
