@@ -59,7 +59,8 @@ public:
 		int x,y;
 		for (y=0; y < this->gbitmap.fHeight; y++) {
 			for (x=0; x < this->gbitmap.fWidth; x++) {
-				this->gbitmap.fPixels[y*(this->gbitmap.fRowBytes/sizeof(GPixel))+x]=cpixel;
+				int byteOffset = y*this->gbitmap.fRowBytes+x*sizeof(GPixel);
+				*((GPixel*)(((char*)this->gbitmap.fPixels)+byteOffset)) = cpixel;
 			}
 		}
 	}
@@ -74,9 +75,6 @@ private:
 GContext* GContext::Create(const GBitmap& bitmap) {
 	// Check that fRowBytes is not less than fWidth
 	if (bitmap.fRowBytes < bitmap.fWidth * sizeof(GPixel))
-		return NULL;
-	// check for alignment with fRowBytes and the size of GPixel
-	if (bitmap.fRowBytes % sizeof(GPixel) != 0)
 		return NULL;
 	// catch for null fpixels
 	if (bitmap.fPixels == NULL)
