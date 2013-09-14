@@ -47,12 +47,20 @@ public:
 			((int)(alpha * green * 255.0f + 0.5f) << GPIXEL_SHIFT_G) |
 			((int)(alpha * blue * 255.0f + 0.5f) << GPIXEL_SHIFT_B);
 
-
-		int x, y;
-		for (y = 0; y < this->gbitmap.fHeight; y++) {
-			for (x = 0; x < this->gbitmap.fWidth; x++) {
-				int byteOffset = y * this->gbitmap.fRowBytes + x * sizeof(GPixel);
-				*((GPixel*)(((char*)this->gbitmap.fPixels) + byteOffset)) = cpixel;
+		if (this->gbitmap.fWidth == this->gbitmap.fRowBytes * sizeof(GPixel)) {
+			int size = this->gbitmap.fHeight * this->gbitmap.fWidth;
+			int i;
+			for (i = 0; i < size; i++) {
+				this->gbitmap.fPixels[i] = cpixel;
+			}
+		}
+		else {
+			int x, y;
+			for (y = 0; y < this->gbitmap.fHeight; y++) {
+				for (x = 0; x < this->gbitmap.fWidth; x++) {
+					int byteOffset = y * this->gbitmap.fRowBytes + x * sizeof(GPixel);
+					*((GPixel*)(((char*)this->gbitmap.fPixels) + byteOffset)) = cpixel;
+				}
 			}
 		}
 	}
@@ -60,6 +68,7 @@ public:
 private:
 	// our bitmap
 	GBitmap gbitmap;
+
 	// used as a reference to clear the bitmap pixels.
 	GPixel* pixref;
 };
