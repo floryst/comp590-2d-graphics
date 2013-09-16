@@ -14,6 +14,20 @@
 class GBitmap;
 class GColor;
 
+// Clamps a given float channel to rgb value
+float rgb_clamp(float channel) {
+	if (channel > 1.0f)
+		return 1.0f;
+	if (channel < 0.0f)
+		return 0.0f;
+	return channel;
+}
+
+// Converts float channel to rgb value
+int inline rgb_float2int(float channel) {
+	return static_cast<int>(channel * 255.0f + 0.5f);
+}
+
 class GContext0 : public GContext {
 public:
 
@@ -35,32 +49,25 @@ public:
 		float alpha, red, green, blue;
 
 		// clamping
-		alpha = (color.fA > 1.0f) ? 1.0f : ((color.fA < 0.0f) ? 0.0f : color.fA);
-		red = (color.fR > 1.0f) ? 1.0f : ((color.fR < 0.0f) ? 0.0f : color.fR);
-		green = (color.fG > 1.0f) ? 1.0f : ((color.fG < 0.0f) ? 0.0f : color.fG);
-		blue = (color.fB > 1.0f) ? 1.0f : ((color.fB < 0.0f) ? 0.0f : color.fB);
+		alpha = rgb_clamp(color.fA);
+		red = rgb_clamp(color.fR);
+		green = rgb_clamp(color.fG);
+		blue = rgb_clamp(color.fB);
 
 		// GColor is not in premult space, make it premult
 		GPixel cpixel = 
-			((int)(alpha * 255.0f + 0.5f) << GPIXEL_SHIFT_A) |
-			((int)(alpha * red * 255.0f + 0.5f) << GPIXEL_SHIFT_R) |
-			((int)(alpha * green * 255.0f + 0.5f) << GPIXEL_SHIFT_G) |
-			((int)(alpha * blue * 255.0f + 0.5f) << GPIXEL_SHIFT_B);
+			(rgb_float2int(alpha) << GPIXEL_SHIFT_A) |
+			(rgb_float2int(red * alpha) << GPIXEL_SHIFT_R) |
+			(rgb_float2int(green * alpha) << GPIXEL_SHIFT_G) |
+			(rgb_float2int(blue * alpha) << GPIXEL_SHIFT_B);
 
-		if (this->gbitmap.fWidth == this->gbitmap.fRowBytes * sizeof(GPixel)) {
-			int size = this->gbitmap.fHeight * this->gbitmap.fWidth;
-			int i;
-			for (i = 0; i < size; i++) {
-				this->gbitmap.fPixels[i] = cpixel;
-			}
-		}
-		else {
-			int x, y;
-			for (y = 0; y < this->gbitmap.fHeight; y++) {
-				for (x = 0; x < this->gbitmap.fWidth; x++) {
-					int byteOffset = y * this->gbitmap.fRowBytes + x * sizeof(GPixel);
-					*((GPixel*)(((char*)this->gbitmap.fPixels) + byteOffset)) = cpixel;
-				}
+		int x, y;
+		char* charPixels = reinterpret_cast<char*>(this->gbitmap.fPixels);
+		for (y = 0; y < this->gbitmap.fHeight; y++) {
+			int byteOffset = y * this->gbitmap.fRowBytes;
+			char* charPixelsOffset = charPixels + byteOffset;
+			for (x = 0; x < this->gbitmap.fWidth; x++) {
+				*reinterpret_cast<GPixel*>(charPixelsOffset + x * sizeof(GPixel)) = cpixel;
 			}
 		}
 	}
@@ -74,18 +81,19 @@ private:
 };
 
 GContext* GContext::Create(const GBitmap& bitmap) {
-	if (bitmap.fRowBytes < bitmap.fWidth * sizeof(GPixel))
-		return NULL;
-	if (bitmap.fPixels == NULL)
+	if (bitmap.fRowBytes < bitmap.fWidth * sizeof(GPixel) ||
+		bitmap.fPixels == NULL)
 		return NULL;
 	return new GContext0(bitmap, NULL);
 }
 
 GContext* GContext::Create(int width, int height) {
-	if (width <= 0 || height <= 0)
+	if (width <= 0 ||
+		height <= 0 ||
+		(long)width * height >= 1024 * 1024 * 1024)
 		return NULL;
-	GBitmap bitmap;
 
+	GBitmap bitmap;
 	bitmap.fWidth = width;
 	bitmap.fHeight = height;
 	bitmap.fPixels = new GPixel[width * height];
