@@ -37,8 +37,8 @@ public:
 	}
 
 	~GContext0() {
-		if (this->pixref)
-			delete[] this->pixref;
+		// delete[] will auto-check for null
+		delete[] this->pixref;
 	}
 
 	void getBitmap(GBitmap* bitmap) const {
@@ -81,8 +81,11 @@ private:
 };
 
 GContext* GContext::Create(const GBitmap& bitmap) {
+	// Some sanity checks. If people want to give a 
+	// bad bitmap, then that's their problem.
 	if (bitmap.fRowBytes < bitmap.fWidth * sizeof(GPixel) ||
-		bitmap.fPixels == NULL)
+		bitmap.fPixels == NULL ||
+		bitmap.fHeight < 0)
 		return NULL;
 	return new GContext0(bitmap, NULL);
 }
