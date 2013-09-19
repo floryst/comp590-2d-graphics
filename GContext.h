@@ -11,6 +11,7 @@
 
 class GBitmap;
 class GColor;
+class GIRect;
 
 class GContext {
 public:
@@ -18,7 +19,10 @@ public:
     virtual ~GContext() {}
 
     /**
-     *  Return the information about the context's bitmap.
+     *  Copy information about the context's backend into the provided
+     *  bitmap. Ownership of the pixel memory is not affected by this call,
+     *  though the returned pixel address will remain valid for the lifetime
+     *  of the context.
      */
     virtual void getBitmap(GBitmap*) const = 0;
 
@@ -26,6 +30,13 @@ public:
      *  Set the entire context's pixels to the specified value.
      */
     virtual void clear(const GColor&) = 0;
+
+    /**
+     *  Fill the specified rectangle with the specified color, blending using
+     *  SRC_OVER mode. If the rectangle is inverted (e.g. width or height < 0)
+     *  or empty, then nothing is drawn.
+     */
+    virtual void fillIRect(const GIRect&, const GColor&) = 0;
 
     /**
      *  Create a new context that will draw into the specified bitmap. The

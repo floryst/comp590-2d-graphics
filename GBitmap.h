@@ -17,5 +17,18 @@ public:
     size_t  fRowBytes;  // number of bytes between rows of pixels
 };
 
+/**
+ *  Compress 'bitmap' and write it to a new file specified by 'path'. If an
+ *  error occurs, false is returned.
+ */
+bool GWriteBitmapToFile(const GBitmap& bitmap, const char path[]);
+
+/**
+ *  Decompress the image stored in 'path', and store the results in 'bitmap',
+ *  allocating the memory for its pixels using malloc(). If the file cannot be
+ *  decoded, 'bitmap' is ignored and false is returned.
+ */
+bool GReadBitmapFromFile(const char path[], GBitmap* bitmap);
+
 #endif
 

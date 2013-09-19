@@ -9,9 +9,18 @@
 
 #include "GTypes.h"
 
+/**
+ *  Holds a nonpremultiplied color, with each component
+ *  normalized to [0...1].
+ */
 class GColor {
 public:
     float   fA, fR, fG, fB;
+
+    static GColor Make(float a, float r, float g, float b) {
+        GColor c = { a, r, g, b };
+        return c;
+    }
 };
 
 #endif
