@@ -28,6 +28,15 @@ int inline rgb_float2int(float channel) {
 	return static_cast<int>(channel * 255.0f + 0.5f);
 }
 
+// Pack premult argb into GPixel
+GPixel inline pack_argb(float a, float r, float g, float b) {
+	return 
+		(rgb_float2int(alpha) << GPIXEL_SHIFT_A) |
+		(rgb_float2int(red * alpha) << GPIXEL_SHIFT_R) |
+		(rgb_float2int(green * alpha) << GPIXEL_SHIFT_G) |
+		(rgb_float2int(blue * alpha) << GPIXEL_SHIFT_B);
+}
+
 class GContext0 : public GContext {
 public:
 
@@ -55,19 +64,19 @@ public:
 		blue = rgb_clamp(color.fB);
 
 		// GColor is not in premult space, make it premult
-		GPixel cpixel = 
-			(rgb_float2int(alpha) << GPIXEL_SHIFT_A) |
-			(rgb_float2int(red * alpha) << GPIXEL_SHIFT_R) |
-			(rgb_float2int(green * alpha) << GPIXEL_SHIFT_G) |
-			(rgb_float2int(blue * alpha) << GPIXEL_SHIFT_B);
+		GPixel cpixel = pack_argb(a, r, g, b);
 
 		int x, y;
+		int height = this->gbitmap.fHeight;
+		int width = this->gbitmap.fWidth;
+		int rowBytes = this->gbitmap.fRowBytes;
+		int gPixelSize = sizeof(GPixel);
 		char* charPixels = reinterpret_cast<char*>(this->gbitmap.fPixels);
-		for (y = 0; y < this->gbitmap.fHeight; y++) {
-			int byteOffset = y * this->gbitmap.fRowBytes;
+		for (y = 0; y < height; y++) {
+			int byteOffset = y * rowBytes;
 			char* charPixelsOffset = charPixels + byteOffset;
-			for (x = 0; x < this->gbitmap.fWidth; x++) {
-				*reinterpret_cast<GPixel*>(charPixelsOffset + x * sizeof(GPixel)) = cpixel;
+			for (x = 0; x < width; x++) {
+				*reinterpret_cast<GPixel*>(charPixelsOffset + x * gPixelSize) = cpixel;
 			}
 		}
 	}
