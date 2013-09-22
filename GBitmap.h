@@ -11,6 +11,11 @@
 
 class GBitmap {
 public:
+    int width() const { return fWidth; }
+    int height() const { return fHeight; }
+    size_t rowBytes() const { return fRowBytes; }
+    void* pixels() const { return fPixels; }
+
     int     fWidth;     // number of pixels in a row
     int     fHeight;    // number of rows of pixels
     GPixel* fPixels;    // address of first (top) row of pixels
