@@ -126,13 +126,27 @@ static bool check_pixels(const GBitmap& bm, GPixel expected, int maxDiff) {
     return true;
 }
 
-static void test_clear(Stats* stats, ColorProc colorProc, GContext* ctx,
-                       const Size& size) {
+static GContext* create(const GBitmap& bm) {
+    GContext* ctx = GContext::Create(bm);
     if (!ctx) {
-        fprintf(stderr, "GContext::Create failed\n");
+        fprintf(stderr, "GContext::Create(w=%d h=%d rb=%zu px=%p) failed\n",
+                bm.width(), bm.height(), bm.rowBytes(), bm.pixels());
         exit(-1);
     }
+    return ctx;
+}
 
+static GContext* create(int w, int h) {
+    GContext* ctx = GContext::Create(w, h);
+    if (!ctx) {
+        fprintf(stderr, "GContext::Create(w=%d h=%d) failed\n", w, h);
+        exit(-1);
+    }
+    return ctx;
+}
+
+static void test_clear(Stats* stats, ColorProc colorProc, GContext* ctx,
+                       const Size& size) {
     AutoDelete<GContext> ad(ctx);
 
     GBitmap bitmap;
@@ -216,8 +230,8 @@ static void test_clear(Stats* stats, ColorProc colorProc) {
                 fprintf(stderr, "testing [%d %d]\n", w, h);
             }
             
-            test_clear(stats, colorProc, GContext::Create(bitmap), size);
-            test_clear(stats, colorProc, GContext::Create(w, h), size);
+            test_clear(stats, colorProc, create(bitmap), size);
+            test_clear(stats, colorProc, create(w, h), size);
         }
     }
 }
@@ -254,7 +268,7 @@ static void test_simple_rect(Stats* stats) {
 }
 
 static void test_rects(Stats* stats) {
-    AutoDelete<GContext> ctx(GContext::Create(100, 100));
+    AutoDelete<GContext> ctx(create(100, 100));
     
     GBitmap bitmap;
     ctx->getBitmap(&bitmap);

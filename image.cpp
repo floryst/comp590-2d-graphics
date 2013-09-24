@@ -13,6 +13,25 @@
 #include "GRandom.h"
 #include "GIRect.h"
 
+template <typename T> class GAutoDelete {
+public:
+    GAutoDelete(T* obj) : fObj(obj) {}
+    ~GAutoDelete() { delete fObj; }
+
+    T* get() const { return fObj; }
+    operator T*() { return fObj; }
+    T* operator->() { return fObj; }
+
+    T* detach() {
+        T* obj = fObj;
+        fObj = NULL;
+        return obj;
+    }
+
+private:
+    T*  fObj;
+};
+
 static const GColor gGColor_TRANSPARENT_BLACK = { 0, 0, 0, 0 };
 static const GColor gGColor_BLACK = { 1, 0, 0, 0 };
 static const GColor gGColor_WHITE = { 1, 1, 1, 1 };
@@ -201,27 +220,77 @@ static GContext* image_frame(const char** name) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static int max(int a, int b) { return a > b ? a : b; }
+
+static int pixel_max_diff(uint32_t p0, uint32_t p1) {
+    int da = abs(GPixel_GetA(p0) - GPixel_GetA(p1));
+    int dr = abs(GPixel_GetR(p0) - GPixel_GetR(p1));
+    int dg = abs(GPixel_GetG(p0) - GPixel_GetG(p1));
+    int db = abs(GPixel_GetB(p0) - GPixel_GetB(p1));
+    
+    return max(da, max(dr, max(dg, db)));
+}
+
+// return 0...1 amount that the images are the same. 1.0 means perfect equality.
+static double compare_bitmaps(const GBitmap& a, const GBitmap& b, int maxDiff) {
+    const GPixel* row_a = a.fPixels;
+    const GPixel* row_b = b.fPixels;
+
+    int diffCount = 0;
+
+    for (int y = 0; y < a.height(); y++) {
+        for (int x = 0; x < a.width(); ++x) {
+            if (pixel_max_diff(row_a[x], row_b[x]) > maxDiff) {
+                diffCount += 1;
+            }
+        }
+    }
+    
+    double err = diffCount * 1.0 / (a.width() * a.height());
+    return 1.0 - err;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 static const ImageProc gProcs[] = {
     image_primaries, image_ramp, image_rand, image_blend, image_frame,
 };
 
 int main(int argc, char** argv) {
     const char* writePath = NULL;
+    const char* readPath = NULL;
+    int tolerance = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--help")) {
             printf("generates a series of test images.\n"
                    "--write foo (or -w foo) writes the images as *.png files to foo directory\n");
             exit(0);
-        }
-        if (!strcmp(argv[i], "-w") || !strcmp(argv[i], "--write")) {
+        } else if (!strcmp(argv[i], "-w") || !strcmp(argv[i], "--write")) {
             if (i == argc - 1) {
                 fprintf(stderr, "need path following -w or --write\n");
                 exit(-1);
             }
             writePath = argv[++i];
+        } else if (!strcmp(argv[i], "-r") || !strcmp(argv[i], "--read")) {
+            if (i == argc - 1) {
+                fprintf(stderr, "need path following -r or --read\n");
+                exit(-1);
+            }
+            readPath = argv[++i];
+        } else if (!strcmp(argv[i], "--tolerance")) {
+            if (i == argc - 1) {
+                fprintf(stderr, "need tolerance_value (0..255) to follow --tolerance\n");
+                exit(-1);
+            }
+            int tol = (int)atol(argv[++i]);
+            if (tol >= 0 || tol <= 255) {
+                tolerance = tol;
+            }
         }
     }
+
+    double score = 0;
 
     FILE* htmlFile = NULL;
     if (writePath) {
@@ -236,28 +305,49 @@ int main(int argc, char** argv) {
     
     for (int i = 0; i < GARRAY_COUNT(gProcs); ++i) {
         const char* name = NULL;
-        GContext* ctx = gProcs[i](&name);
-        printf("drawing... %s\n", name);
+        GAutoDelete<GContext> ctx(gProcs[i](&name));
+        GBitmap drawnBM;
+        ctx->getBitmap(&drawnBM);
+        printf("drawing... %s [%d %d]", name, drawnBM.width(), drawnBM.height());
+
         if (writePath) {
             std::string path;
             make_filename(&path, writePath, name);
             path.append(".png");
             remove(path.c_str());
 
-            GBitmap bm;
-            ctx->getBitmap(&bm);
-            if (!GWriteBitmapToFile(bm, path.c_str())) {
+            if (!GWriteBitmapToFile(drawnBM, path.c_str())) {
                 fprintf(stderr, "failed to write image to %s\n", path.c_str());
             } else if (htmlFile) {
                 fprintf(htmlFile, "    <img src=\"%s.png\">\n", name);
             }
         }
-        delete ctx;
+        if (readPath) {
+            std::string path;
+            make_filename(&path, readPath, name);
+            path.append(".png");
+            
+            GBitmap expectedBM;
+            if (GReadBitmapFromFile(path.c_str(), &expectedBM)) {
+                double s = compare_bitmaps(expectedBM, drawnBM, tolerance);
+                printf(" ... match %d%%\n", (int)(s * 100));
+                score += s;
+            } else {
+                printf(" ... failed to read expected image at %s\n",
+                        path.c_str());
+            }
+        } else {
+            printf("\n");
+        }
     }
     
     if (htmlFile) {
         fprintf(htmlFile, "</body>\n");
         fclose(htmlFile);
+    }
+    if (readPath) {
+        int count = GARRAY_COUNT(gProcs);
+        printf("Image score %d%% for %d images\n", (int)(score * 100 / count), count);
     }
     return 0;
 }
