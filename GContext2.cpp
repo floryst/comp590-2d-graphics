@@ -8,7 +8,7 @@
 #define GContext0_DEFINED
 
 #define ROUND(x) static_cast<int>((x) + 0.5f)
-#define FLOAT2INT(x) static_cast<int>((x)*255.0f + 0.5f)
+#define FLOAT2INT(x) ROUND((x)*255.0f)
 
 #include "GContext.h"
 #include "GBitmap.h"
@@ -18,6 +18,10 @@
 class GBitmap;
 class GColor;
 class GIRect;
+
+typedef struct {
+	float A, R, G, B;
+} PremultColor;
 
 // Clamps a given channel to normalized boundaries
 static float channel_clamp(float channel) {
@@ -39,7 +43,6 @@ static GPixel inline pack_argb(int a, int r, int g, int b) {
 
 // Unpacks a given pixel into separate channels
 static void inline unpack_argb(GPixel pixel, int& a, int& r, int& g, int& b) {
-	// TODO clean up
 	a = (pixel >> GPIXEL_SHIFT_A) & 0xff;
 	r = (pixel >> GPIXEL_SHIFT_R) & 0xff;
 	g = (pixel >> GPIXEL_SHIFT_G) & 0xff;
@@ -49,24 +52,18 @@ static void inline unpack_argb(GPixel pixel, int& a, int& r, int& g, int& b) {
 // Applies SRC_OVER given dest and src pixels
 // Will write the composite pixel to *dst
 // src pixel will be in GColor format.
-static inline GPixel apply_src_over(GPixel* dst, GColor src) {
-	int ta, tr, tg, tb;
+static inline GPixel apply_src_over(GPixel* const dst, const PremultColor& color) {
 	int dst_a, dst_r, dst_g, dst_b;
 	float src_a, src_r, src_g, src_b;
 
-	unpack_argb(*dst, ta, tr, tg, tb);
-	dst_a = ta;
-	dst_r = tr;
-	dst_g = tg;
-	dst_b = tb;
+	unpack_argb(*dst, dst_a, dst_r, dst_g, dst_b);
 	// make src premult
-	src_a = channel_clamp(src.fA);
-	src_r = channel_clamp(src.fR) * src_a * 255.0f;
-	src_g = channel_clamp(src.fG) * src_a * 255.0f;
-	src_b = channel_clamp(src.fB) * src_a * 255.0f;
+	src_r = color.R * 255.0f;
+	src_g = color.G * 255.0f;
+	src_b = color.B * 255.0f;
 
-	float transparency = 1.0f - src_a;
-	src_a *= 255.0f;
+	float transparency = 1.0f - color.A;
+	src_a = color.A * 255.0f;
 	float res_a = src_a + transparency * dst_a;
 	*dst = pack_argb(
 		ROUND(res_a),
@@ -126,6 +123,7 @@ public:
 		if (rect.width() < 0 || rect.height() < 0)
 			return;
 
+		// TODO intersect
 		// clamping
 		int rTop = rect.fTop < 0 ? 0 : rect.fTop;
 		int rBottom = rect.fBottom > this->gbitmap.fHeight ?
@@ -138,12 +136,38 @@ public:
 		int bmRowBytes = this->gbitmap.fRowBytes;
 		char* bmPixels = reinterpret_cast<char*>(this->gbitmap.fPixels);
 
+		float alpha = channel_clamp(color.fA);
+		PremultColor pcolor = {
+			alpha,
+			channel_clamp(color.fR) * alpha,
+			channel_clamp(color.fG) * alpha,
+			channel_clamp(color.fB) * alpha};
+
 		int x, y;
-		for (y = rTop; y < rBottom; y++) {
-			char* yoffset = bmPixels + y * bmRowBytes;
-			for (x = rLeft; x < rRight; x++) {
-				GPixel* dst = reinterpret_cast<GPixel*>(yoffset + x * sizeof(GPixel));
-				apply_src_over(dst, color);
+		if (pcolor.A == 0)
+			return;
+		else if (pcolor.A == 1) {
+
+			GPixel pixel = pack_argb(
+				FLOAT2INT(pcolor.A),
+				FLOAT2INT(pcolor.R),
+				FLOAT2INT(pcolor.G),
+				FLOAT2INT(pcolor.B));
+
+			for (y = rTop; y < rBottom; y++) {
+				char* yoffset = bmPixels + y * bmRowBytes;
+				for (x = rLeft; x < rRight; x++) {
+					*reinterpret_cast<GPixel*>(yoffset + x * sizeof(GPixel)) = pixel;
+				}
+			}
+		}
+		else {
+			for (y = rTop; y < rBottom; y++) {
+				char* yoffset = bmPixels + y * bmRowBytes;
+				for (x = rLeft; x < rRight; x++) {
+					GPixel* dst = reinterpret_cast<GPixel*>(yoffset + x * sizeof(GPixel));
+					apply_src_over(dst, pcolor);
+				}
 			}
 		}
 	}
