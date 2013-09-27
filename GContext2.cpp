@@ -24,7 +24,7 @@ typedef struct {
 } PremultColor;
 
 // Clamps a given channel to normalized boundaries
-static float channel_clamp(float channel) {
+static float inline pin_channel(float channel) {
 	if (channel > 1.0f)
 		return 1.0f;
 	if (channel < 0.0f)
@@ -32,44 +32,30 @@ static float channel_clamp(float channel) {
 	return channel;
 }
 
-// Pack already premult argb into GPixel
-static GPixel inline pack_argb(int a, int r, int g, int b) {
-	return 
-		(a << GPIXEL_SHIFT_A) |
-		(r << GPIXEL_SHIFT_R) |
-		(g << GPIXEL_SHIFT_G) |
-		(b << GPIXEL_SHIFT_B);
-}
-
-// Unpacks a given pixel into separate channels
-static void inline unpack_argb(GPixel pixel, int& a, int& r, int& g, int& b) {
-	a = (pixel >> GPIXEL_SHIFT_A) & 0xff;
-	r = (pixel >> GPIXEL_SHIFT_R) & 0xff;
-	g = (pixel >> GPIXEL_SHIFT_G) & 0xff;
-	b = (pixel >> GPIXEL_SHIFT_B) & 0xff;
+// Tests the intersection of two rectangles
+static int intersect(const GIRect& rect1, const GIRect rect2, GIRect& intersect) {
+	
 }
 
 // Applies SRC_OVER given dest and src pixels
 // Will write the composite pixel to *dst
 // src pixel will be in GColor format.
 static inline GPixel apply_src_over(GPixel* const dst, const PremultColor& color) {
-	int dst_a, dst_r, dst_g, dst_b;
 	float src_a, src_r, src_g, src_b;
 
-	unpack_argb(*dst, dst_a, dst_r, dst_g, dst_b);
 	// make src premult
+	src_a = color.A * 255.0f;
 	src_r = color.R * 255.0f;
 	src_g = color.G * 255.0f;
 	src_b = color.B * 255.0f;
 
 	float transparency = 1.0f - color.A;
-	src_a = color.A * 255.0f;
-	float res_a = src_a + transparency * dst_a;
-	*dst = pack_argb(
+	float res_a = src_a + transparency * GPixel_GetA(*dst);
+	*dst = GPixel_PackARGB(
 		ROUND(res_a),
-		ROUND(src_r + transparency * dst_r),
-		ROUND(src_g + transparency * dst_g),
-		ROUND(src_b + transparency * dst_b));
+		ROUND(src_r + transparency * GPixel_GetR(*dst)),
+		ROUND(src_g + transparency * GPixel_GetG(*dst)),
+		ROUND(src_b + transparency * GPixel_GetB(*dst)));
 }
 
 class GContext0 : public GContext {
@@ -93,13 +79,13 @@ public:
 		float alpha, red, green, blue;
 
 		// clamping
-		alpha = channel_clamp(color.fA);
-		red = channel_clamp(color.fR);
-		green = channel_clamp(color.fG);
-		blue = channel_clamp(color.fB);
+		alpha = pin_channel(color.fA);
+		red = pin_channel(color.fR);
+		green = pin_channel(color.fG);
+		blue = pin_channel(color.fB);
 
 		// GColor is not in premult space, make it premult
-		GPixel cpixel = pack_argb(
+		GPixel cpixel = GPixel_PackARGB(
 			FLOAT2INT(alpha),
 			FLOAT2INT(red * alpha),
 			FLOAT2INT(green * alpha),
@@ -109,18 +95,43 @@ public:
 		int bmHeight = this->gbitmap.fHeight;
 		int bmWidth = this->gbitmap.fWidth;
 		int bmRowBytes = this->gbitmap.fRowBytes;
-		char* bmPixels = reinterpret_cast<char*>(this->gbitmap.fPixels);
-		for (y = 0; y < bmHeight; y++) {
-			char* yoffset = bmPixels + y * bmRowBytes;
-			for (x = 0; x < bmWidth; x++) {
-				// TODO does the compiler optimize sizeof to a constant?
-				*reinterpret_cast<GPixel*>(yoffset + x * sizeof(GPixel)) = cpixel;
+
+		// Optimize for full-sized images
+		if (bmWidth * 4 == bmRowBytes) {
+			long bmArea = bmHeight * bmWidth;
+			GPixel* bmPixels = this->gbitmap.fPixels;
+			int i;
+			for (i = 0; i < bmArea; i++) {
+				*(bmPixels++) = cpixel;
+			}
+		}
+		// Optimize for well aligned (to sizeof(GPixel)) images
+		else if (bmRowBytes % sizeof(GPixel) == 0) {
+			GPixel* bmPixels = this->gbitmap.fPixels;
+			int bmRowGPixels = bmRowBytes / sizeof(GPixel);
+			for (y = 0; y < bmHeight; y++) {
+				GPixel* yoffset = bmPixels + y * bmRowGPixels;
+				for (x = 0; x < bmWidth; x++) {
+					*(yoffset + x) = cpixel;
+				}
+			}
+		}
+		// Worst case, image is not well aligned
+		else {
+			char* bmPixels = reinterpret_cast<char*>(this->gbitmap.fPixels);
+			for (y = 0; y < bmHeight; y++) {
+				GPixel* yoffset = reinterpret_cast<GPixel*>(bmPixels + y * bmRowBytes);
+				for (x = 0; x < bmWidth; x++) {
+					*(yoffset + x) = cpixel;
+				}
 			}
 		}
 	}
 
 	void fillIRect(const GIRect& rect, const GColor& color) {
-		if (rect.width() < 0 || rect.height() < 0)
+		if (rect.width() < 0 ||
+			rect.height() < 0 ||
+			color.fA <= 0)
 			return;
 
 		// TODO intersect
@@ -136,19 +147,16 @@ public:
 		int bmRowBytes = this->gbitmap.fRowBytes;
 		char* bmPixels = reinterpret_cast<char*>(this->gbitmap.fPixels);
 
-		float alpha = channel_clamp(color.fA);
+		float alpha = pin_channel(color.fA);
 		PremultColor pcolor = {
 			alpha,
-			channel_clamp(color.fR) * alpha,
-			channel_clamp(color.fG) * alpha,
-			channel_clamp(color.fB) * alpha};
+			pin_channel(color.fR) * alpha,
+			pin_channel(color.fG) * alpha,
+			pin_channel(color.fB) * alpha};
 
 		int x, y;
-		if (pcolor.A == 0)
-			return;
-		else if (pcolor.A == 1) {
-
-			GPixel pixel = pack_argb(
+		if (alpha == 1) {
+			GPixel pixel = GPixel_PackARGB(
 				FLOAT2INT(pcolor.A),
 				FLOAT2INT(pcolor.R),
 				FLOAT2INT(pcolor.G),
@@ -193,7 +201,7 @@ GContext* GContext::Create(const GBitmap& bitmap) {
 GContext* GContext::Create(int width, int height) {
 	if (width <= 0 ||
 		height <= 0 ||
-		(long)width * height >= 1024 * 1024 * 1024)
+		static_cast<long>(width) * height >= 1024 * 1024 * 1024)
 		return NULL;
 
 	GBitmap bitmap;
