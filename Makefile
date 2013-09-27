@@ -1,6 +1,6 @@
 CC = g++
 
-CC_DEBUG = $(CC) -g
+CC_DEBUG = $(CC) -g -pg
 CC_RELEASE = $(CC) -O3 -DNDEBUG
 
 # need libpng to build
