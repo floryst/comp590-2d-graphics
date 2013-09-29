@@ -40,6 +40,24 @@ public:
         fRight = x + w;
         fBottom = y + h;
     }
+    
+    void offset(int dx, int dy) {
+        fLeft += dx;
+        fTop += dy;
+        fRight += dx;
+        fBottom += dy;
+    }
+    
+    void inset(int dx, int dy) {
+        fLeft += dx;
+        fTop += dy;
+        fRight -= dx;
+        fBottom -= dy;
+    }
+    
+    bool contains(int x, int y) const {
+        return fLeft <= x && x < fRight && fTop <= y && y < fBottom;
+    }
 
     ///////////////////////////////////////////////////////////////////////////
 

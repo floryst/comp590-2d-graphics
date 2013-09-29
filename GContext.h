@@ -39,6 +39,15 @@ public:
     virtual void fillIRect(const GIRect&, const GColor&) = 0;
 
     /**
+     *  Draw the specified bitmap, positioning its top-left corner at (x, y).
+     *  Apply the specified alpha to the bitmap and then blend it using
+     *  SRC_OVER.
+     *  If alpha is outside of the unit interval [0...1] it will be pinned to
+     *  the nearest legal value.
+     */
+    virtual void drawBitmap(const GBitmap&, int x, int y, float alpha = 1) = 0;
+
+    /**
      *  Create a new context that will draw into the specified bitmap. The
      *  caller is responsible for managing the lifetime of the pixel memory.
      *  If the new context cannot be created, return NULL.

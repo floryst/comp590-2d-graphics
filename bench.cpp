@@ -8,6 +8,7 @@
 #include "GBitmap.h"
 #include "GColor.h"
 #include "GIRect.h"
+#include "GRandom.h"
 #include "GTime.h"
 
 #include <string.h>
@@ -20,7 +21,7 @@ static double time_erase(GContext* ctx, const GColor& color) {
     GBitmap bm;
     ctx->getBitmap(&bm);
 
-    int loop = 10 * 1000 * gRepeatCount;
+    int loop = 2 * 1000 * gRepeatCount;
     
     GMSec before = GTime::GetMSec();
     
@@ -70,41 +71,72 @@ static void clear_bench() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static double time_rect(GContext* ctx, const GIRect& rect, const GColor& color) {
-    int loop = 10 * 1000 * gRepeatCount;
+static GIRect rand_rect_255(GRandom& rand) {
+    int x = rand.nextU() & 15;
+    int y = rand.nextU() & 15;
+    int w = rand.nextU() & 255;
+    int h = rand.nextU() & 255;
+    return GIRect::MakeXYWH(x, y, w, h);
+}
+
+static double time_rect(GContext* ctx, const GIRect& rect, float alpha,
+                        GIRect (*proc)(GRandom&)) {
+    int loop = 20 * 1000 * gRepeatCount;
     
     GMSec before = GTime::GetMSec();
-    for (int i = 0; i < loop; ++i) {
-        ctx->fillIRect(rect, color);
+    GColor color = { alpha, 0, 0, 0 };
+    GRandom rand;
+
+    double area = 0;
+    if (proc) {
+        for (int i = 0; i < loop; ++i) {
+            GIRect r = proc(rand);
+            color.fR = rand.nextF();
+            ctx->fillIRect(r, color);
+            // this is not really accurage for 'area', since we should really
+            // measure the intersected-area of r w/ the context's bitmap
+            area += r.width() * r.height();
+        }
+    } else {
+        for (int i = 0; i < loop; ++i) {
+            color.fR = rand.nextF();
+            ctx->fillIRect(rect, color);
+            area += rect.width() * rect.height();
+        }
     }
     GMSec dur = GTime::GetMSec() - before;
     
-    double area = rect.width() * rect.height();
 
-    return dur * 1000 * 1000.0 / (loop * area);
+    return dur * 1000 * 1000.0 / area;
 }
 
 static void rect_bench() {
+    const int W = 256;
+    const int H = 256;
     static const struct {
         int fWidth;
         int fHeight;
         float fAlpha;
         const char* fDesc;
+        GIRect (*fProc)(GRandom&);
     } gRec[] = {
-        {   2,  256,    1.0f,   "opaque narrow" },
-        { 256,    2,    1.0f,   "opaque   wide" },
-        {   2,  256,    0.5f,   " blend narrow" },
-        { 256,    2,    0.5f,   " blend   wide" },
+        { 2, H,    1.0f,   "opaque narrow", NULL },
+        { W, 2,    1.0f,   "opaque   wide", NULL },
+
+        { 2, H,    0.5f,   " blend narrow", NULL },
+        { W, 2,    0.5f,   " blend   wide", NULL },
+        { W, H,    0.5f,   " blend random", rand_rect_255 },
+
+        { W, H,    0.0f,   "  zero   full", NULL },
     };
 
-    GContext* ctx = GContext::Create(256, 256);
+    GContext* ctx = GContext::Create(W, H);
     ctx->clear(GColor::Make(1, 1, 1, 1));
 
     double total = 0;
     for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
         GIRect r = GIRect::MakeWH(gRec[i].fWidth, gRec[i].fHeight);
-        GColor c = { gRec[i].fAlpha, 1, 0, 0 };
-        double dur = time_rect(ctx, r, c);
+        double dur = time_rect(ctx, r, gRec[i].fAlpha, gRec[i].fProc);
         if (gVerbose) {
             printf("Rect %s %8.4f per-pixel\n", gRec[i].fDesc, dur);
         }

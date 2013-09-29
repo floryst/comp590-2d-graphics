@@ -212,7 +212,9 @@ static GContext* image_frame(const char** name) {
         make_rand_rect(rand, &r, W, H);
         make_translucent_color(rand, &c);
         c.fA = 0.80f;
-        frameIRect(ctx, r, rand.nextRange(0, 25), rand.nextRange(0, 25), c);
+        int h = rand.nextRange(0, 25);
+        int w = rand.nextRange(0, 25);
+        frameIRect(ctx, r, w, h, c);
     }
     *name = "frame";
     return ctx;
@@ -256,6 +258,8 @@ static const ImageProc gProcs[] = {
     image_primaries, image_ramp, image_rand, image_blend, image_frame,
 };
 
+static bool gVerbose;
+
 int main(int argc, char** argv) {
     const char* writePath = NULL;
     const char* readPath = NULL;
@@ -287,6 +291,8 @@ int main(int argc, char** argv) {
             if (tol >= 0 || tol <= 255) {
                 tolerance = tol;
             }
+        } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
+            gVerbose = true;
         }
     }
 
@@ -308,7 +314,9 @@ int main(int argc, char** argv) {
         GAutoDelete<GContext> ctx(gProcs[i](&name));
         GBitmap drawnBM;
         ctx->getBitmap(&drawnBM);
-        printf("drawing... %s [%d %d]", name, drawnBM.width(), drawnBM.height());
+        if (gVerbose) {
+            printf("drawing... %s [%d %d]", name, drawnBM.width(), drawnBM.height());
+        }
 
         if (writePath) {
             std::string path;
@@ -330,14 +338,18 @@ int main(int argc, char** argv) {
             GBitmap expectedBM;
             if (GReadBitmapFromFile(path.c_str(), &expectedBM)) {
                 double s = compare_bitmaps(expectedBM, drawnBM, tolerance);
-                printf(" ... match %d%%\n", (int)(s * 100));
+                if (gVerbose) {
+                    printf(" ... match %d%%\n", (int)(s * 100));
+                }
                 score += s;
             } else {
                 printf(" ... failed to read expected image at %s\n",
                         path.c_str());
             }
         } else {
-            printf("\n");
+            if (gVerbose) {
+                printf("\n");
+            }
         }
     }
     
