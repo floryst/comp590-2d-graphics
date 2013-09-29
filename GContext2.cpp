@@ -32,9 +32,22 @@ static float inline pin_channel(float channel) {
 	return channel;
 }
 
-// Tests the intersection of two rectangles
-static int intersect(const GIRect& rect1, const GIRect rect2, GIRect& intersect) {
+// Tests the intersection of two rectangles.
+// One rectangle has the top-left corner centered at the origin.
+static int intersect(const GIRect rect, int width, int height, GIRect& rIntersect) {
+	int rTop = rect.fTop < 0 ? 0 : rect.fTop;
+	int rLeft = rect.fLeft < 0 ? 0 : rect.fLeft;
+	int rBottom = rect.fBottom > height ? height : rect.fBottom;
+	int rRight = rect.fRight > width ? width : rect.fRight;
+
+	if (rRight - rLeft <= 0 ||
+		rBottom - rTop <= 0)
+		return 0;
 	
+	// Create new rect
+	rIntersect = GIRect::MakeLTRB(rLeft, rTop, rRight, rBottom);
+	return 1;
+
 }
 
 // Applies SRC_OVER given dest and src pixels
@@ -50,9 +63,8 @@ static inline GPixel apply_src_over(GPixel* const dst, const PremultColor& color
 	src_b = color.B * 255.0f;
 
 	float transparency = 1.0f - color.A;
-	float res_a = src_a + transparency * GPixel_GetA(*dst);
 	*dst = GPixel_PackARGB(
-		ROUND(res_a),
+		ROUND(src_a + transparency * GPixel_GetA(*dst)),
 		ROUND(src_r + transparency * GPixel_GetR(*dst)),
 		ROUND(src_g + transparency * GPixel_GetG(*dst)),
 		ROUND(src_b + transparency * GPixel_GetB(*dst)));
@@ -129,21 +141,19 @@ public:
 	}
 
 	void fillIRect(const GIRect& rect, const GColor& color) {
-		if (rect.width() < 0 ||
-			rect.height() < 0 ||
-			color.fA <= 0)
+		if (color.fA <= 0)
 			return;
 
-		// TODO intersect
-		// clamping
-		int rTop = rect.fTop < 0 ? 0 : rect.fTop;
-		int rBottom = rect.fBottom > this->gbitmap.fHeight ?
-			this->gbitmap.fHeight : rect.fBottom;
-		int rLeft = rect.fLeft < 0 ? 0 : rect.fLeft;
-		int rRight = rect.fRight > this->gbitmap.fWidth ?
-			this->gbitmap.fWidth : rect.fRight;
+		GIRect irect;
+		if (0 == intersect(rect, this->gbitmap.fWidth, this->gbitmap.fHeight, irect))
+			return;
 
-		int rWidth = rect.width() * sizeof(GPixel);
+		int rTop = irect.fTop;
+		int rBottom = irect.fBottom;
+		int rLeft = irect.fLeft;
+		int rRight = irect.fRight;
+		int rWidth = irect.width() * sizeof(GPixel);
+
 		int bmRowBytes = this->gbitmap.fRowBytes;
 		char* bmPixels = reinterpret_cast<char*>(this->gbitmap.fPixels);
 
@@ -155,7 +165,8 @@ public:
 			pin_channel(color.fB) * alpha};
 
 		int x, y;
-		if (alpha == 1) {
+		// opaque color doesn't need src_over math.
+		if (1 == alpha) {
 			GPixel pixel = GPixel_PackARGB(
 				FLOAT2INT(pcolor.A),
 				FLOAT2INT(pcolor.R),
@@ -163,18 +174,18 @@ public:
 				FLOAT2INT(pcolor.B));
 
 			for (y = rTop; y < rBottom; y++) {
-				char* yoffset = bmPixels + y * bmRowBytes;
+				GPixel* yoffset = reinterpret_cast<GPixel*>(bmPixels + y * bmRowBytes);
 				for (x = rLeft; x < rRight; x++) {
-					*reinterpret_cast<GPixel*>(yoffset + x * sizeof(GPixel)) = pixel;
+					*(yoffset + x) = pixel;
 				}
 			}
 		}
+		// alpha blending with src_over.
 		else {
 			for (y = rTop; y < rBottom; y++) {
-				char* yoffset = bmPixels + y * bmRowBytes;
+				GPixel* yoffset = reinterpret_cast<GPixel*>(bmPixels + y * bmRowBytes);
 				for (x = rLeft; x < rRight; x++) {
-					GPixel* dst = reinterpret_cast<GPixel*>(yoffset + x * sizeof(GPixel));
-					apply_src_over(dst, pcolor);
+					apply_src_over(yoffset + x, pcolor);
 				}
 			}
 		}
@@ -192,7 +203,7 @@ GContext* GContext::Create(const GBitmap& bitmap) {
 	// Some sanity checks. If people want to give a 
 	// bad bitmap, then that's their problem.
 	if (bitmap.fRowBytes < bitmap.fWidth * sizeof(GPixel) ||
-		bitmap.fPixels == NULL ||
+		NULL == bitmap.fPixels ||
 		bitmap.fHeight < 0)
 		return NULL;
 	return new GContext0(bitmap, NULL);
