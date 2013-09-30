@@ -11,94 +11,155 @@
 #include "GIRect.h"
 #include "GRandom.h"
 #include "GTime.h"
+#include <string>
+#include <math.h>
 
-static GIRect rand_rect(GRandom& rand, int w, int h) {
-    int cx = rand.nextRange(0, w);
-    int cy = rand.nextRange(0, h);
-    int cw = rand.nextRange(1, w/4);
-    int ch = rand.nextRange(1, h/4);
-    return GIRect::MakeXYWH(cx - cw/2, cy - ch/2, cw, ch);
+static GPixel* next_row(const GBitmap& bm, GPixel* row) {
+    return (GPixel*)((const char*)row + bm.fRowBytes);
 }
 
-static GColor rand_color(GRandom& rand) {
-    return GColor::Make(rand.nextF(), rand.nextF(), rand.nextF(), rand.nextF());
-}
+static void fill_circle(const GBitmap& bm) {
+    int w = bm.width();
+    int h = bm.height();
+    int r = (w < h ? w : h) >> 1;
+    float cx = w/2;
+    float cy = h/2;
+    float rr = (float)r * r;
 
-static float lerp(float x0, float x1, float percent) {
-    return x0 + (x1 - x0) * percent;
-}
-
-static void lerp(const GColor& c0, const GColor& c1, float percent, GColor* result) {
-    result->fA = lerp(c0.fA, c1.fA, percent);
-    result->fR = lerp(c0.fR, c1.fR, percent);
-    result->fG = lerp(c0.fG, c1.fG, percent);
-    result->fB = lerp(c0.fB, c1.fB, percent);
-}
-
-static void alloc_bm(GBitmap* bm, int w, int h) {
-    bm->fWidth = w;
-    bm->fHeight = h;
-    bm->fRowBytes = w * sizeof(GPixel);
-    bm->fPixels = (GPixel*)malloc(h * bm->fRowBytes);
-}
-
-static void make_bm(const GBitmap& bm, float finalAlpha) {
-    const int W = bm.fWidth;
-    const int H = bm.fHeight;
-    const GColor c0 = { 1, 1, 0, 0 };
-    const GColor c1 = { finalAlpha, 0, 1, 1 };
-    
-    GContext* ctx = GContext::Create(bm);
-    ctx->clear(GColor::Make(0, 0, 0, 0));
-    
-    GIRect r = GIRect::MakeWH(1, H);
-    for (int x = 0; x < W; ++x) {
-        GColor color;
-        lerp(c0, c1, x * 1.0f / W, &color);
-        ctx->fillIRect(r, color);
-        r.offset(1, 0);
+    GPixel* row = bm.fPixels;
+    for (int y = 0; y < h; ++y) {
+        float dy2 = (y - cy) * (y - cy);
+        for (int x = 0; x < w; ++x) {
+            float dx2 = (x - cx) * (x - cx);
+            if (dx2 + dy2 > rr) {
+                row[x] = 0;
+            }
+        }
+        row = next_row(bm, row);
     }
-    delete ctx;
 }
+
+class Shape {
+public:
+    Shape(float x, float y) : fX(x), fY(y), fA(1) {
+        fPrevTime = GTime::GetMSec();
+    }
+    virtual ~Shape() {}
+
+    void setup(float dx, float dy, float da) {
+        fDx = dx; fDy = dy; fDa = da;
+    }
+    
+    void bounce(int w, int h, GMSec now);
+
+    int getX() const { return (int)fX; }
+    int getY() const { return (int)fY; }
+    float getA() const { return fA; }
+
+    virtual void draw(GContext*) = 0;
+
+private:
+    float fX, fY, fA;
+    float fDx, fDy, fDa;
+    GMSec  fPrevTime;
+};
+
+static void bounce(float& x, float& dx, float scale, float limit) {
+    x += dx * scale;
+    if (dx > 0 && x > limit) {
+        x = limit;
+        dx = -dx;
+    } else if (dx < 0 && x < 0) {
+        x = 0;
+        dx = -dx;
+    }
+}
+
+void Shape::bounce(int w, int h, GMSec now) {
+    float dur = (now - fPrevTime) / 1000.0f;
+    fPrevTime = now;
+
+    ::bounce(fX, fDx, dur, w);
+    ::bounce(fY, fDy, dur, h);
+    ::bounce(fA, fDa, dur, 1);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+class BitmapShape : public Shape {
+public:
+    BitmapShape(const GBitmap& bm, int x, int y)
+    : Shape(x, y), fBM(bm) {}
+
+    virtual void draw(GContext* ctx) {
+        ctx->drawBitmap(fBM,
+                        this->getX() - fBM.width()/2,
+                        this->getY() - fBM.height()/2, this->getA());
+    }
+    
+private:
+    GBitmap fBM;
+};
 
 class TestWindow : public GXWindow {
-    GBitmap fBitmap;
-
+    Shape** fShapes;
+    int     fShapeCount;
+    GBitmap* fBitmaps;
+    int     fBitmapCount;
 public:
-    TestWindow(int w, int h) : GXWindow(w, h) {
-        this->setTitle("Hit a key to toggle opaque/translucent");
+    TestWindow(int w, int h,
+               char const* const* files, int fileCount,
+               bool doCircles, bool doFade, int repeat) : GXWindow(w, h) {
         fDoOpaque = true;
         fStartTime = GTime::GetMSec();
         fCounter = 0;
 
-        alloc_bm(&fBitmap, 200, 200);
-        make_bm(fBitmap, 0.5f);
+        GRandom rand;
+
+        fBitmapCount = 0;
+        fBitmaps = new GBitmap[fileCount];
+        for (int i = 0; i < fileCount; ++i) {
+            if (GReadBitmapFromFile(files[i], &fBitmaps[i])) {
+                fBitmapCount += 1;
+                
+                if (doCircles) {
+                    fill_circle(fBitmaps[i]);
+                }
+            }
+        }
+        fShapeCount = fBitmapCount * repeat;
+        fShapes = new Shape*[fShapeCount];
+
+        float speed = 300;
+        for (int i = 0; i < fShapeCount; ++i) {
+            fShapes[i] = new BitmapShape(fBitmaps[i % fBitmapCount], w/2, h/2);
+            fShapes[i]->setup(rand.nextF() * speed,
+                              rand.nextF() * speed,
+                              doFade ? rand.nextF() : 0);
+        }
     }
 
     virtual ~TestWindow() {
-        free(fBitmap.fPixels);
+        for (int i = 0; i < fShapeCount; ++i) {
+            delete fShapes[i];
+        }
+        delete[] fShapes;
+
+        for (int i = 0; i < fBitmapCount; ++i) {
+            free(fBitmaps[i].fPixels);
+        }
+        delete[] fBitmaps;
     }
     
 protected:
     virtual void onDraw(GContext* ctx) {
         ctx->clear(GColor::Make(1, 1, 1, 1));
         
-        const int w = this->width();
-        const int h = this->height();
-#if 0
-        for (int i = 0; i < 1000; ++i) {
-            GColor c = rand_color(fRand);
-            if (fDoOpaque) {
-                c.fA = 1;
-            }
-            ctx->fillIRect(rand_rect(fRand, w, h), c);
+        GMSec now = GTime::GetMSec();
+        for (int i = 0; i < fShapeCount; ++i) {
+            fShapes[i]->bounce(this->width(), this->height(), now);
+            fShapes[i]->draw(ctx);
         }
-#else
-        for (int i = 0; i < 100; ++i) {
-            ctx->drawBitmap(fBitmap, 20, 20, fDoOpaque ? 1 : 0.5f);
-        }
-#endif
-
         this->requestDraw();
 
         if (++fCounter > 100) {
@@ -126,7 +187,45 @@ private:
     typedef GXWindow INHERITED;
 };
 
-int main(int argc, char* argv[]) {    
-    return TestWindow(640, 480).run();
+int main(int argc, char const* const* argv) {
+    if (1 == argc) {
+        fprintf(stderr, "usage: [--circles] [--fade] [--repeat N] file1.png file2.png ...\n");
+        return -1;
+    }
+    
+    bool docircles = false;
+    bool dofade = false;
+    int repeat = 1;
+    int firstFile = argc;
+
+    for (int i = 1; i < argc; ++i) {
+        if (strstr(argv[i], "--") == argv[i]) {
+            if (!strcmp(argv[i], "--circles")) {
+                docircles = true;
+            } else if (!strcmp(argv[i], "--fade")) {
+                dofade = true;
+            } else if (!strcmp(argv[i], "--repeat") && i < argc - 1) {
+                repeat = atol(argv[++i]);
+                if (repeat < 1) {
+                    repeat = 1;
+                }
+            } else {
+                fprintf(stderr, "unrecognized option %s\n", argv[i]);
+                return -1;
+            }
+        } else {
+            firstFile = i;
+            break;
+        }
+    }
+    int count = argc - firstFile;
+    if (count <= 0) {
+        fprintf(stderr, "need file1.png ... args\n");
+        return -1;
+    }
+
+    return TestWindow(640, 480,
+                      &argv[firstFile], count,
+                      docircles, dofade, repeat).run();
 }
 

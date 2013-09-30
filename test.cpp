@@ -12,6 +12,8 @@
 #include "GIRect.h"
 #include "GRandom.h"
 
+#define LOOP    100
+
 template <typename T> class AutoDelete {
 public:
     AutoDelete(T* obj) : fObj(obj) {}
@@ -88,6 +90,7 @@ struct Size {
     int fW, fH;
 };
 
+static int min(int a, int b) { return a < b ? a : b; }
 static int max(int a, int b) { return a > b ? a : b; }
 
 static int pixel_max_diff(uint32_t p0, uint32_t p1) {
@@ -97,6 +100,10 @@ static int pixel_max_diff(uint32_t p0, uint32_t p1) {
     int db = abs(GPixel_GetB(p0) - GPixel_GetB(p1));
     
     return max(da, max(dr, max(dg, db)));
+}
+
+static const GPixel* next_row(const GBitmap& bm, const GPixel* row) {
+    return (const GPixel*)((const char*)row + bm.fRowBytes);
 }
 
 static bool check_pixels(const GBitmap& bm, GPixel expected, int maxDiff) {
@@ -120,11 +127,40 @@ static bool check_pixels(const GBitmap& bm, GPixel expected, int maxDiff) {
                 return false;
             }
         }
-        // skip to the next row
-        row = (const GPixel*)((const char*)row + bm.fRowBytes);
+        row = next_row(bm, row);
     }
     return true;
 }
+
+static bool check_bitmaps(const GBitmap& a, const GBitmap& b, int maxDiff) {
+    GASSERT(a.width() == b.width());
+    GASSERT(a.height() == b.height());
+
+    const GPixel* rowA = a.fPixels;
+    const GPixel* rowB = b.fPixels;
+    for (int y = 0; y < a.height(); ++y) {
+        for (int x = 0; x < a.width(); ++x) {
+            GPixel pixelA = rowA[x];
+            GPixel pixelB = rowB[x];
+            if (pixelA == pixelB) {
+                continue;
+            }
+            
+            if (pixel_max_diff(pixelA, pixelB) > maxDiff) {
+                if (gVerbose) {
+                    fprintf(stderr, "at (%d, %d) expected %x but got %x",
+                            x, y, pixelA, pixelB);
+                }
+                return false;
+            }
+        }
+        rowA = next_row(a, rowA);
+        rowB = next_row(b, rowB);
+    }
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 static GContext* create(const GBitmap& bm) {
     GContext* ctx = GContext::Create(bm);
@@ -174,7 +210,7 @@ static void test_clear(Stats* stats, ColorProc colorProc, GContext* ctx,
     }
 
     GRandom rand;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 10; ++i) {
         GColor color;
         colorProc(rand, &color);
         const GPixel pixel = color_to_pixel(color);
@@ -279,7 +315,7 @@ static void test_rects(Stats* stats) {
     
     GRandom rand;
     // test transparent
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < LOOP; ++i) {
         GColor c;
         make_translucent_color(rand, &c);
         c.fA = 0;   // force transparent
@@ -295,7 +331,7 @@ static void test_rects(Stats* stats) {
     }
     
     // test blending
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < LOOP; ++i) {
         GColor c;
         make_translucent_color(rand, &c);
         
@@ -337,11 +373,170 @@ static void test_bad_rects(Stats* stats) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static bool intersect(const GIRect& a, const GIRect& b, GIRect* dst) {
+    if (a.isEmpty() || b.isEmpty()) {
+        return false;
+    }
+    if (a.fLeft >= b.fRight || b.fLeft >= a.fRight ||
+        a.fTop >= b.fBottom || b.fTop >= a.fBottom) {
+        return false;
+    }
+    dst->setLTRB(max(a.fLeft, b.fLeft), max(a.fTop, b.fTop),
+                 min(a.fRight, b.fRight), min(a.fBottom, b.fBottom));
+    return true;
+}
+
+static bool intersect2(const GIRect& a, const GIRect& b, GIRect* dst) {
+    int32_t L = max(a.fLeft, b.fLeft);
+    int32_t R = min(a.fRight, b.fRight);
+    int32_t T = max(a.fTop, b.fTop);
+    int32_t B = min(a.fBottom, b.fBottom);
+    
+    if (L < R && T < B) {
+        dst->setLTRB(L, T, R, B);
+        return true;
+    }
+    return false;
+}
+
+static GPixel* get_addr(const GBitmap& bm, int x, int y) {
+    GASSERT(x >= 0 && x < bm.fWidth);
+    GASSERT(y >= 0 && y < bm.fHeight);
+    return (GPixel*)((char*)bm.fPixels + y * bm.fRowBytes) + x;
+}
+
+static bool extract_subset(const GBitmap& src, const GIRect& r, GBitmap* dst) {
+    GIRect subR;
+    if (!intersect(GIRect::MakeWH(src.width(), src.height()), r, &subR)) {
+        return false;
+    }
+    dst->fWidth = subR.width();
+    dst->fHeight = subR.height();
+    dst->fRowBytes = src.rowBytes();
+    dst->fPixels = get_addr(src, subR.x(), subR.y());
+    return true;
+}
+
+class AutoBitmap : public GBitmap {
+public:
+    AutoBitmap(int width, int height, int slop) {
+        fWidth = width;
+        fHeight = height;
+        fRowBytes = (width + slop) * sizeof(GPixel);
+        fPixels = (GPixel*)malloc(fHeight * fRowBytes);
+    }
+    ~AutoBitmap() {
+        free(fPixels);
+    }
+};
+
+static void rand_fill_opaque(const GBitmap& bm, GRandom rand) {
+    for (int y = 0; y < bm.height(); ++y) {
+        for (int x = 0; x < bm.width(); ++x) {
+            *get_addr(bm, x, y) = rand.nextU() | (0xFF << GPIXEL_SHIFT_A);
+        }
+    }
+}
+
+#if 0
+static inline int div255(int value) {
+    return (value + 255/2) / 255;
+}
+
+static GPixel premul(int a, int r, int g, int b) {
+    return GPixel_PackARGB(a, div255(a * r), div255(a * g), div255(a * b));
+}
+
+static void rand_fill_alpha(const GBitmap& bm, GRandom rand) {
+    for (int y = 0; y < bm.height(); ++y) {
+        for (int x = 0; x < bm.width(); ++x) {
+            int a = rand.nextU() & 0xFF;
+            int r = rand.nextU() & 0xFF;
+            int g = rand.nextU() & 0xFF;
+            int b = rand.nextU() & 0xFF;
+            *get_addr(bm, x, y) = premul(a, r, g, b);
+        }
+    }
+}
+#endif
+
+class BTester {
+public:
+    virtual void fill(const GBitmap&, GRandom&) = 0;
+    virtual bool check(const GBitmap&, const GBitmap&, const GColor& clear) = 0;
+
+    void test(Stats* stats, const GColor& clearColor) {
+        GRandom rand;
+        
+        AutoDelete<GContext> ctx(GContext::Create(102, 102));
+        for (int i = 0; i < LOOP; ++i) {
+            int width = rand.nextRange(1, 100);
+            int height = rand.nextRange(1, 100);
+            AutoBitmap bm(width, height, rand.nextRange(0, 100));
+            this->fill(bm, rand);
+            
+            ctx->clear(clearColor);
+            ctx->drawBitmap(bm, 1, 1, 1);
+            
+            GBitmap device, dev;
+            ctx->getBitmap(&device);
+            if (extract_subset(device,
+                               GIRect::MakeXYWH(1, 1, bm.width(), bm.height()),
+                               &dev)) {
+                stats->fFailures += !this->check(dev, bm, clearColor);
+                stats->fTests += 1;
+            }
+        }
+    }
+};
+
+class OpaqueBTester : public BTester {
+public:
+    virtual void fill(const GBitmap& bm, GRandom& rand) {
+        rand_fill_opaque(bm, rand);
+    }
+    virtual bool check(const GBitmap& a, const GBitmap& b, const GColor&) {
+        return check_bitmaps(a, b, 0);
+    }
+};
+
+class TransparentBTester : public BTester {
+public:
+    virtual void fill(const GBitmap& bm, GRandom& rand) {
+        memset(bm.fPixels, 0, bm.fHeight * bm.fRowBytes);
+    }
+    virtual bool check(const GBitmap& a, const GBitmap&, const GColor& clear) {
+        return check_pixels(a, color_to_pixel(clear), 0);
+    }
+};
+
+static void test_bitmap(Stats* stats) {
+    OpaqueBTester opaqueBT;
+    TransparentBTester transparentBT;
+
+    BTester* const testers[] = {
+        &opaqueBT, &transparentBT,
+    };
+    const GColor colors[] = {
+        GColor::Make(0, 0, 0, 0),
+        GColor::Make(1, 1, 1, 1),
+        GColor::Make(0.5f, 1, 0.5, 0.13)
+    };
+    for (int i = 0; i < GARRAY_COUNT(colors); ++i) {
+        for (int j = 0; j < GARRAY_COUNT(testers); ++j) {
+            testers[j]->test(stats, colors[i]);
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 typedef void (*TestProc)(Stats*);
 
 static const TestProc gTests[] = {
-    test_clear_opaque, test_clear_translucent, test_simple_rect, test_rects,
-    test_bad_rects,
+    test_clear_opaque, test_clear_translucent,
+    test_simple_rect, test_rects, test_bad_rects,
+    test_bitmap,
 };
 
 int main(int argc, char** argv) {

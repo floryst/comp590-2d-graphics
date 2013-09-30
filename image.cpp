@@ -73,6 +73,38 @@ static void make_rand_rect(GRandom& rand, GIRect* r, int w, int h) {
     r->setXYWH(cx - cw/2, cy - ch/2, cw, ch);
 }
 
+static void assert_unit_float(float x) {
+    GASSERT(x >= 0 && x <= 1);
+}
+
+static int unit_float_to_byte(float x) {
+    GASSERT(x >= 0 && x <= 1);
+    return (int)(x * 255 + 0.5f);
+}
+
+/*
+ *  Pins each float value to be [0...1]
+ *  Then scales them to bytes, and packs them into a GPixel
+ */
+static GPixel color_to_pixel(const GColor& c) {
+    assert_unit_float(c.fA);
+    assert_unit_float(c.fR);
+    assert_unit_float(c.fG);
+    assert_unit_float(c.fB);
+    int a = unit_float_to_byte(c.fA);
+    int r = unit_float_to_byte(c.fR * c.fA);
+    int g = unit_float_to_byte(c.fG * c.fA);
+    int b = unit_float_to_byte(c.fB * c.fA);
+    
+    return GPixel_PackARGB(a, r, g, b);
+}
+
+static GPixel* next_row(const GBitmap& bm, GPixel* row) {
+    return (GPixel*)((char*)row + bm.fRowBytes);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 typedef GContext* (*ImageProc)(const char**);
 
 // Draw a grid of primary colors
@@ -222,6 +254,115 @@ static GContext* image_frame(const char** name) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static float color_dot(const float c[], float s0, float s1, float s2, float s3) {
+    float res = c[0] * s0 + c[4] * s1 + c[8] * s2 + c[12] * s3;
+    GASSERT(res >= 0);
+    // our bilerp can have a tiny amount of error, resulting in a dot-prod
+    // of slightly greater than 1, so we have to pin here.
+    if (res > 1) {
+        res = 1;
+    }
+    return res;
+}
+
+static GColor lerp4colors(const GColor corners[], float dx, float dy) {
+    float LT = (1 - dx) * (1 - dy);
+    float RT = dx * (1 - dy);
+    float RB = dx * dy;
+    float LB = (1 - dx) * dy;
+
+    return GColor::Make(color_dot(&corners[0].fA, LT, RT, RB, LB),
+                        color_dot(&corners[0].fR, LT, RT, RB, LB),
+                        color_dot(&corners[0].fG, LT, RT, RB, LB),
+                        color_dot(&corners[0].fB, LT, RT, RB, LB));
+}
+
+class AutoBitmap : public GBitmap {
+public:
+    AutoBitmap(int width, int height, int slop) {
+        fWidth = width;
+        fHeight = height;
+        fRowBytes = (width + slop) * sizeof(GPixel);
+        fPixels = (GPixel*)malloc(fHeight * fRowBytes);
+    }
+    ~AutoBitmap() {
+        free(fPixels);
+    }
+};
+
+/**
+ *  colors[] are for each corner's starting color [LT, RT, RB, LB]
+ */
+static void fill_ramp(const GBitmap& bm, const GColor colors[4]) {
+    const float xscale = 1.0f / (bm.width() - 1);
+    const float yscale = 1.0f / (bm.height() - 1);
+
+    GPixel* row = bm.fPixels;
+    for (int y = 0; y < bm.height(); ++y) {
+        for (int x = 0; x < bm.width(); ++x) {
+            GColor c = lerp4colors(colors, x * xscale, y * yscale);
+            row[x] = color_to_pixel(c);
+        }
+        row = next_row(bm, row);
+    }
+}
+
+static GContext* make_ramp(const GColor& clearColor, const GColor corners[4],
+                           float globalAlpha) {
+    const int W = 256;
+    const int H = 256;
+    
+    GContext* ctx = GContext::Create(W, H);
+    ctx->clear(clearColor);
+    
+    AutoBitmap bm(W, H, 17);
+    fill_ramp(bm, corners);
+    ctx->drawBitmap(bm, 0, 0, globalAlpha);
+    return ctx;
+}
+
+static GContext* image_bitmap_solid_opaque(const char** name) {
+    const GColor corners[] = {
+        GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
+        GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+    
+    *name = "bitmap_solid_opaque";
+    return make_ramp(GColor::Make(1, 1, 1, 1), corners, 1);
+}
+
+static GContext* image_bitmap_blend_opaque(const char** name) {
+    const GColor corners[] = {
+        GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
+        GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+    
+    *name = "bitmap_blend_opaque";
+    return make_ramp(GColor::Make(1, 1, 1, 1), corners, 0.5f);
+}
+
+static GContext* image_bitmap_solid_alpha(const char** name) {
+    const GColor corners[] = {
+        GColor::Make(0, 1, 0, 0),   GColor::Make(0.5f, 0, 1, 0),
+        GColor::Make(0.5f, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+    
+    *name = "bitmap_solid_alpha";
+    return make_ramp(GColor::Make(1, 1, 1, 1), corners, 1);
+}
+
+static GContext* image_bitmap_blend_alpha(const char** name) {
+    const GColor corners[] = {
+        GColor::Make(0, 1, 0, 0),   GColor::Make(0.5f, 0, 1, 0),
+        GColor::Make(0.5f, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+    
+    *name = "bitmap_blend_alpha";
+    return make_ramp(GColor::Make(1, 1, 1, 1), corners, 0.5f);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 static int max(int a, int b) { return a > b ? a : b; }
 
 static int pixel_max_diff(uint32_t p0, uint32_t p1) {
@@ -256,6 +397,8 @@ static double compare_bitmaps(const GBitmap& a, const GBitmap& b, int maxDiff) {
 
 static const ImageProc gProcs[] = {
     image_primaries, image_ramp, image_rand, image_blend, image_frame,
+    image_bitmap_solid_opaque, image_bitmap_blend_opaque,
+    image_bitmap_solid_alpha, image_bitmap_blend_alpha
 };
 
 static bool gVerbose;
@@ -327,7 +470,7 @@ int main(int argc, char** argv) {
             if (!GWriteBitmapToFile(drawnBM, path.c_str())) {
                 fprintf(stderr, "failed to write image to %s\n", path.c_str());
             } else if (htmlFile) {
-                fprintf(htmlFile, "    <img src=\"%s.png\">\n", name);
+                fprintf(htmlFile, "    <img src=\"%s.png\"> %s<p>\n", name, name);
             }
         }
         if (readPath) {

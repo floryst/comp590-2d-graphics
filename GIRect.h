@@ -16,6 +16,8 @@ public:
     int32_t fRight;
     int32_t fBottom;
 
+    int32_t x() const { return fLeft; }
+    int32_t y() const { return fTop; }
     int32_t width() const { return fRight - fLeft; }
     int32_t height() const { return fBottom - fTop; }
 
