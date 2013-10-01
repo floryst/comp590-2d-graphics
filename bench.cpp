@@ -17,6 +17,36 @@
 static bool gVerbose;
 static int gRepeatCount = 1;
 
+static void assert_unit_float(float x) {
+    GASSERT(x >= 0 && x <= 1);
+}
+
+static int unit_float_to_byte(float x) {
+    GASSERT(x >= 0 && x <= 1);
+    return (int)(x * 255 + 0.5f);
+}
+
+/*
+ *  Pins each float value to be [0...1]
+ *  Then scales them to bytes, and packs them into a GPixel
+ */
+static GPixel color_to_pixel(const GColor& c) {
+    assert_unit_float(c.fA);
+    assert_unit_float(c.fR);
+    assert_unit_float(c.fG);
+    assert_unit_float(c.fB);
+    int a = unit_float_to_byte(c.fA);
+    int r = unit_float_to_byte(c.fR * c.fA);
+    int g = unit_float_to_byte(c.fG * c.fA);
+    int b = unit_float_to_byte(c.fB * c.fA);
+    
+    return GPixel_PackARGB(a, r, g, b);
+}
+
+static GPixel* next_row(const GBitmap& bm, GPixel* row) {
+    return (GPixel*)((char*)row + bm.fRowBytes);
+}
+
 static double time_erase(GContext* ctx, const GColor& color) {
     GBitmap bm;
     ctx->getBitmap(&bm);
@@ -148,11 +178,119 @@ static void rect_bench() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static float color_dot(const float c[], float s0, float s1, float s2, float s3) {
+    float res = c[0] * s0 + c[4] * s1 + c[8] * s2 + c[12] * s3;
+    GASSERT(res >= 0);
+    // our bilerp can have a tiny amount of error, resulting in a dot-prod
+    // of slightly greater than 1, so we have to pin here.
+    if (res > 1) {
+        res = 1;
+    }
+    return res;
+}
+
+static GColor lerp4colors(const GColor corners[], float dx, float dy) {
+    float LT = (1 - dx) * (1 - dy);
+    float RT = dx * (1 - dy);
+    float RB = dx * dy;
+    float LB = (1 - dx) * dy;
+    
+    return GColor::Make(color_dot(&corners[0].fA, LT, RT, RB, LB),
+                        color_dot(&corners[0].fR, LT, RT, RB, LB),
+                        color_dot(&corners[0].fG, LT, RT, RB, LB),
+                        color_dot(&corners[0].fB, LT, RT, RB, LB));
+}
+
+/**
+ *  colors[] are for each corner's starting color [LT, RT, RB, LB]
+ */
+static void fill_ramp(const GBitmap& bm, const GColor colors[4]) {
+    const float xscale = 1.0f / (bm.width() - 1);
+    const float yscale = 1.0f / (bm.height() - 1);
+    
+    GPixel* row = bm.fPixels;
+    for (int y = 0; y < bm.height(); ++y) {
+        for (int x = 0; x < bm.width(); ++x) {
+            GColor c = lerp4colors(colors, x * xscale, y * yscale);
+            row[x] = color_to_pixel(c);
+        }
+        row = next_row(bm, row);
+    }
+}
+
+static void init(GBitmap* bm, int W, int H) {
+    bm->fWidth = W;
+    bm->fHeight = H;
+    bm->fRowBytes = W * sizeof(GPixel);
+    bm->fPixels = (GPixel*)malloc(bm->fRowBytes * bm->fHeight);
+}
+
+static double time_bitmap(GContext* ctx, const GBitmap& bm, float globalAlpha) {
+    int loop = 1000 * gRepeatCount;
+    double area = bm.width() * bm.height();
+
+    GMSec before = GTime::GetMSec();
+    for (int i = 0; i < loop; ++i) {
+        ctx->drawBitmap(bm, 0, 0, globalAlpha);
+    }
+    GMSec dur = GTime::GetMSec() - before;
+    return dur * 500 * 1000.0 / (loop * area);
+}
+
+static void bitmap_bench() {
+    const int W = 256;
+    const int H = 256;
+
+    GColor corners[] = {
+        GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
+        GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+
+    const struct {
+        const char* fDesc;
+        const float fCornerAlpha;
+        const float fGlobalAlpha;
+    } gRec[] = {
+        { "bitmap_solid_opaque",    1.0f,  1.0f },
+        { "bitmap_blend_opaque",    0.5f,  1.0f },
+        { "bitmap_solid_alpha ",     1.0f,  0.5f },
+        { "bitmap_blend_alpha ",     0.5f,  0.5f },
+    };
+    
+    GBitmap bitmaps[GARRAY_COUNT(gRec)];
+    for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
+        init(&bitmaps[i], W, H);
+        corners[1].fA = corners[2].fA = gRec[i].fCornerAlpha;
+        fill_ramp(bitmaps[i], corners);
+    }
+
+    GContext* ctx = GContext::Create(W, H);
+    ctx->clear(GColor::Make(1, 1, 1, 1));
+
+    double total = 0;
+    for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
+        double dur = time_bitmap(ctx, bitmaps[i], gRec[i].fGlobalAlpha);
+        if (gVerbose) {
+            printf("Bitmap %s %8.4f per-pixel\n", gRec[i].fDesc, dur);
+        }
+        total += dur;
+    }
+    printf("Bitmap time %7.4f per-pixel\n", total / GARRAY_COUNT(gRec));
+
+    for (int i = 0; i < GARRAY_COUNT(bitmaps); ++i) {
+        free(bitmaps[i].fPixels);
+    }
+    delete ctx;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 typedef void (*BenchProc)();
 
 static const BenchProc gBenches[] = {
     clear_bench,
     rect_bench,
+    bitmap_bench,
 };
 
 int main(int argc, char** argv) {

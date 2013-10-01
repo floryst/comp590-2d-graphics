@@ -406,7 +406,7 @@ static bool gVerbose;
 int main(int argc, char** argv) {
     const char* writePath = NULL;
     const char* readPath = NULL;
-    int tolerance = 0;
+    int tolerance = 1;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--help")) {
