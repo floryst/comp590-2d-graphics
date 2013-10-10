@@ -9,21 +9,13 @@
 #include "GContext.h"
 #include "GBitmap.h"
 #include "GColor.h"
-#include "GIRect.h"
+#include "GPaint.h"
+#include "GRect.h"
 #include "GRandom.h"
 
+#include "app_utils.h"
+
 #define LOOP    100
-
-template <typename T> class AutoDelete {
-public:
-    AutoDelete(T* obj) : fObj(obj) {}
-    ~AutoDelete() { delete fObj; }
-
-    T* operator->() { return fObj; }
-
-private:
-    T* fObj;
-};
 
 static const GColor GColor_TRANSPARENT = { 0,  0, 0, 0 };
 static const GColor GColor_WHITE = { 1, 1, 1, 1 };
@@ -34,14 +26,35 @@ static const GColor GColor_BLACK = { 1, 0, 0, 0 };
 static bool gVerbose;
 
 struct Stats {
-    Stats() : fTests(0), fFailures(0) {}
+    Stats() : fTests(0), fTrials(0), fFailures(0), fScore(0) {}
 
-    int fTests;
-    int fFailures;
-    
-    double percent() const {
-        return 100.0 * (fTests - fFailures) / fTests;
+    bool addTrial(bool success) {
+        fTrials += 1;
+        if (!success) {
+            fFailures += 1;
+        }
+        return success;
     }
+
+    double localPercent() const {
+        return 100.0 * (fTrials - fFailures) / fTrials;
+    }
+    
+    void nextTest() {
+        ++fTests;
+        fScore += this->localPercent();
+    }
+
+    int countTests() const { return fTests; }
+
+    double totalPercent() const {
+        return fScore / fTests;
+    }
+
+private:
+    int fTests;
+    int fTrials, fFailures;
+    double fScore;
 };
 
 typedef void (*ColorProc)(GRandom&, GColor*);
@@ -58,32 +71,6 @@ static void make_translucent_color(GRandom& rand, GColor* color) {
     color->fR = rand.nextF();
     color->fG = rand.nextF();
     color->fB = rand.nextF();
-}
-
-static void assert_unit_float(float x) {
-    GASSERT(x >= 0 && x <= 1);
-}
-
-static int unit_float_to_byte(float x) {
-    GASSERT(x >= 0 && x <= 1);
-    return (int)(x * 255 + 0.5f);
-}
-
-/*
- *  Pins each float value to be [0...1]
- *  Then scales them to bytes, and packs them into a GPixel
- */
-static GPixel color_to_pixel(const GColor& c) {
-    assert_unit_float(c.fA);
-    assert_unit_float(c.fR);
-    assert_unit_float(c.fG);
-    assert_unit_float(c.fB);
-    int a = unit_float_to_byte(c.fA);
-    int r = unit_float_to_byte(c.fR * c.fA);
-    int g = unit_float_to_byte(c.fG * c.fA);
-    int b = unit_float_to_byte(c.fB * c.fA);
-    
-    return GPixel_PackARGB(a, r, g, b);
 }
 
 struct Size {
@@ -121,7 +108,7 @@ static bool check_pixels(const GBitmap& bm, GPixel expected, int maxDiff) {
             // for the expected value in each component.
             if (pixel_max_diff(pixel, expected) > maxDiff) {
                 if (gVerbose) {
-                    fprintf(stderr, "at (%d, %d) expected %x but got %x",
+                    fprintf(stderr, "at (%d, %d) expected %x but got %x\n",
                             x, y, expected, pixel);
                 }
                 return false;
@@ -148,7 +135,7 @@ static bool check_bitmaps(const GBitmap& a, const GBitmap& b, int maxDiff) {
             
             if (pixel_max_diff(pixelA, pixelB) > maxDiff) {
                 if (gVerbose) {
-                    fprintf(stderr, "at (%d, %d) expected %x but got %x",
+                    fprintf(stderr, "at (%d, %d) expected %x but got %x\n",
                             x, y, pixelA, pixelB);
                 }
                 return false;
@@ -183,7 +170,7 @@ static GContext* create(int w, int h) {
 
 static void test_clear(Stats* stats, ColorProc colorProc, GContext* ctx,
                        const Size& size) {
-    AutoDelete<GContext> ad(ctx);
+    GAutoDelete<GContext> ad(ctx);
 
     GBitmap bitmap;
     // memset() not required, but makes it easier to detect errors in the
@@ -216,14 +203,12 @@ static void test_clear(Stats* stats, ColorProc colorProc, GContext* ctx,
         const GPixel pixel = color_to_pixel(color);
 
         ctx->clear(color);
-        if (!check_pixels(bitmap, pixel, 1)) {
+        if (!stats->addTrial(check_pixels(bitmap, pixel, 1))) {
             if (gVerbose) {
                 fprintf(stderr, " for color(%g %g %g %g)\n",
                         color.fA, color.fR, color.fG, color.fB);
             }
-            stats->fFailures += 1;
         }
-        stats->fTests += 1;
     }
 }
 
@@ -262,113 +247,119 @@ static void test_clear(Stats* stats, ColorProc colorProc) {
             GBitmap bitmap;
             BitmapAlloc alloc(&bitmap, w, h);
             
-            if (gVerbose) {
-                fprintf(stderr, "testing [%d %d]\n", w, h);
-            }
-            
             test_clear(stats, colorProc, create(bitmap), size);
             test_clear(stats, colorProc, create(w, h), size);
         }
     }
 }
 
-static void test_clear_opaque(Stats* stats) {
+static const char* test_clear_opaque(Stats* stats) {
     test_clear(stats, make_opaque_color);
+    return "clear_opaque";
 }
 
-static void test_clear_translucent(Stats* stats) {
+static const char* test_clear_translucent(Stats* stats) {
     test_clear(stats, make_translucent_color);
+    return "clear_translucent";
 }
 
-static void test_simple_rect(Stats* stats) {
-    AutoDelete<GContext> ctx(GContext::Create(100, 100));
+static const char* test_simple_rect(Stats* stats) {
+    GAutoDelete<GContext> ctx(GContext::Create(100, 100));
     
     GBitmap bitmap;
     ctx->getBitmap(&bitmap);
-    GIRect r = GIRect::MakeWH(bitmap.fWidth, bitmap.fHeight);
+    GRect r = GRect::MakeWH(bitmap.fWidth, bitmap.fHeight);
     
     const GColor colors[] = {
         { 1, 0, 0, 0 }, { 1, 0, 0, 1 }, { 1, 0, 1, 0 }, { 1, 0, 1, 1 },
         { 1, 1, 0, 0 }, { 1, 1, 0, 1 }, { 1, 1, 1, 0 }, { 1, 1, 1, 1 },
     };
 
+    GPaint paint;
+
     // test opaque
     for (int i = 0; i < GARRAY_COUNT(colors); ++i) {
         ctx->clear(GColor_TRANSPARENT);
-        ctx->fillIRect(r, colors[i]);
+        paint.setColor(colors[i]);
+
+        ctx->drawRect(r, paint);
 
         GPixel pixel = color_to_pixel(colors[i]);
-        stats->fTests += 1;
-        stats->fFailures += !check_pixels(bitmap, pixel, 0);
+        stats->addTrial(check_pixels(bitmap, pixel, 0));
     }
+    return "simple_rects";
 }
 
-static void test_rects(Stats* stats) {
-    AutoDelete<GContext> ctx(create(100, 100));
+static const char* test_rects(Stats* stats) {
+    GAutoDelete<GContext> ctx(create(100, 100));
     
     GBitmap bitmap;
     ctx->getBitmap(&bitmap);
-    GIRect r = GIRect::MakeWH(bitmap.fWidth, bitmap.fHeight);
+    GRect r = GRect::MakeWH(bitmap.fWidth, bitmap.fHeight);
     
     GPixel whitePixel = color_to_pixel(GColor_WHITE);
     GPixel blackPixel = color_to_pixel(GColor_BLACK);
     
     GRandom rand;
+    GPaint paint;
+    GColor color;
+
     // test transparent
     for (int i = 0; i < LOOP; ++i) {
-        GColor c;
-        make_translucent_color(rand, &c);
-        c.fA = 0;   // force transparent
+        make_translucent_color(rand, &color);
+        paint.setColor(color);
+        paint.setAlpha(0);   // force transparent
         
         ctx->clear(GColor_WHITE);
-        ctx->fillIRect(r, c);
-        check_pixels(bitmap, whitePixel, 0);
+        ctx->drawRect(r, paint);
+        stats->addTrial(check_pixels(bitmap, whitePixel, 0));
         
         ctx->clear(GColor_BLACK);
-        ctx->fillIRect(r, c);
-        stats->fFailures += !check_pixels(bitmap, blackPixel, 0);
-        stats->fTests += 1;
+        ctx->drawRect(r, paint);
+        stats->addTrial(check_pixels(bitmap, blackPixel, 0));
     }
     
     // test blending
     for (int i = 0; i < LOOP; ++i) {
-        GColor c;
-        make_translucent_color(rand, &c);
+        make_translucent_color(rand, &color);
+        paint.setColor(color);
         
         ctx->clear(GColor_TRANSPARENT);
-        ctx->fillIRect(r, c);
-        stats->fFailures += !check_pixels(bitmap, color_to_pixel(c), 1);
-        stats->fTests += 1;
+        ctx->drawRect(r, paint);
+        stats->addTrial(check_pixels(bitmap, color_to_pixel(paint.getColor()), 1));
     }
+    return "draw_rects";
 }
 
-static void test_bad_rects(Stats* stats) {
-    AutoDelete<GContext> ctx(GContext::Create(10, 10));
+static const char* test_bad_rects(Stats* stats) {
+    GAutoDelete<GContext> ctx(GContext::Create(10, 10));
     
     GBitmap bitmap;
     ctx->getBitmap(&bitmap);
 
-    const GIRect rects[] = {
-        { -20, -20, -10, -10 },
-        { -20, -20,   5, -10 },
-        { -20, -20,  20, -10 },
+    const GRect rects[] = {
+        GRect::MakeLTRB( -20, -20, -10, -10 ),
+        GRect::MakeLTRB( -20, -20,   5, -10 ),
+        GRect::MakeLTRB( -20, -20,  20, -10 ),
         
-        { -20,   0, -10, 10 },
-        {  20,   0,  30, 10 },
+        GRect::MakeLTRB( -20,   0, -10, 10 ),
+        GRect::MakeLTRB(  20,   0,  30, 10 ),
 
-        { -20, 10, -10, 20 },
-        { -20, 10,   5, 20 },
-        { -20, 10,  20, 20 },
+        GRect::MakeLTRB( -20, 10, -10, 20 ),
+        GRect::MakeLTRB( -20, 10,   5, 20 ),
+        GRect::MakeLTRB( -20, 10,  20, 20 ),
     };
 
     ctx->clear(GColor_WHITE);
     GPixel pixel = 0xFFFFFFFF;  // works for any pixel ordering
 
+    GPaint paint;
     for (int i = 0; i < GARRAY_COUNT(rects); ++i) {
-        ctx->fillIRect(rects[i], GColor_BLACK);
-        stats->fFailures += !check_pixels(bitmap, pixel, 0);
-        stats->fTests += 1;
+        ctx->drawRect(rects[i], paint);
+        
+        stats->addTrial(check_pixels(bitmap, pixel, 0));
     }
+    return "bad_rects";
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -399,12 +390,6 @@ static bool intersect2(const GIRect& a, const GIRect& b, GIRect* dst) {
     return false;
 }
 
-static GPixel* get_addr(const GBitmap& bm, int x, int y) {
-    GASSERT(x >= 0 && x < bm.fWidth);
-    GASSERT(y >= 0 && y < bm.fHeight);
-    return (GPixel*)((char*)bm.fPixels + y * bm.fRowBytes) + x;
-}
-
 static bool extract_subset(const GBitmap& src, const GIRect& r, GBitmap* dst) {
     GIRect subR;
     if (!intersect(GIRect::MakeWH(src.width(), src.height()), r, &subR)) {
@@ -413,52 +398,17 @@ static bool extract_subset(const GBitmap& src, const GIRect& r, GBitmap* dst) {
     dst->fWidth = subR.width();
     dst->fHeight = subR.height();
     dst->fRowBytes = src.rowBytes();
-    dst->fPixels = get_addr(src, subR.x(), subR.y());
+    dst->fPixels = src.getAddr(subR.x(), subR.y());
     return true;
 }
-
-class AutoBitmap : public GBitmap {
-public:
-    AutoBitmap(int width, int height, int slop) {
-        fWidth = width;
-        fHeight = height;
-        fRowBytes = (width + slop) * sizeof(GPixel);
-        fPixels = (GPixel*)malloc(fHeight * fRowBytes);
-    }
-    ~AutoBitmap() {
-        free(fPixels);
-    }
-};
 
 static void rand_fill_opaque(const GBitmap& bm, GRandom rand) {
     for (int y = 0; y < bm.height(); ++y) {
         for (int x = 0; x < bm.width(); ++x) {
-            *get_addr(bm, x, y) = rand.nextU() | (0xFF << GPIXEL_SHIFT_A);
+            *bm.getAddr(x, y) = rand.nextU() | (0xFF << GPIXEL_SHIFT_A);
         }
     }
 }
-
-#if 0
-static inline int div255(int value) {
-    return (value + 255/2) / 255;
-}
-
-static GPixel premul(int a, int r, int g, int b) {
-    return GPixel_PackARGB(a, div255(a * r), div255(a * g), div255(a * b));
-}
-
-static void rand_fill_alpha(const GBitmap& bm, GRandom rand) {
-    for (int y = 0; y < bm.height(); ++y) {
-        for (int x = 0; x < bm.width(); ++x) {
-            int a = rand.nextU() & 0xFF;
-            int r = rand.nextU() & 0xFF;
-            int g = rand.nextU() & 0xFF;
-            int b = rand.nextU() & 0xFF;
-            *get_addr(bm, x, y) = premul(a, r, g, b);
-        }
-    }
-}
-#endif
 
 class BTester {
 public:
@@ -467,8 +417,9 @@ public:
 
     void test(Stats* stats, const GColor& clearColor) {
         GRandom rand;
+        GPaint paint;
         
-        AutoDelete<GContext> ctx(GContext::Create(102, 102));
+        GAutoDelete<GContext> ctx(GContext::Create(102, 102));
         for (int i = 0; i < LOOP; ++i) {
             int width = rand.nextRange(1, 100);
             int height = rand.nextRange(1, 100);
@@ -476,15 +427,14 @@ public:
             this->fill(bm, rand);
             
             ctx->clear(clearColor);
-            ctx->drawBitmap(bm, 1, 1, 1);
+            ctx->drawBitmap(bm, 1, 1, paint);
             
             GBitmap device, dev;
             ctx->getBitmap(&device);
             if (extract_subset(device,
                                GIRect::MakeXYWH(1, 1, bm.width(), bm.height()),
                                &dev)) {
-                stats->fFailures += !this->check(dev, bm, clearColor);
-                stats->fTests += 1;
+                stats->addTrial(this->check(dev, bm, clearColor));
             }
         }
     }
@@ -510,7 +460,7 @@ public:
     }
 };
 
-static void test_bitmap(Stats* stats) {
+static const char* test_bitmap(Stats* stats) {
     OpaqueBTester opaqueBT;
     TransparentBTester transparentBT;
 
@@ -527,16 +477,103 @@ static void test_bitmap(Stats* stats) {
             testers[j]->test(stats, colors[i]);
         }
     }
+    return "draw_bitmap";
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef void (*TestProc)(Stats*);
+static GPixel sample_mirror_x(const GBitmap& bm, int x, int y) {
+    return *bm.getAddr(bm.width() - x - 1, y);
+}
+
+static GPixel sample_mirror_y(const GBitmap& bm, int x, int y) {
+    return *bm.getAddr(x, bm.height() - y - 1);
+}
+
+typedef GPixel (*SampleProc)(const GBitmap&, int x, int y);
+
+static bool cmp_sample(const GBitmap& a, const GBitmap& b, SampleProc proc) {
+    GASSERT(a.width() == b.width());
+    GASSERT(a.height() == b.height());
+
+    for (int y = 0; y < a.height(); ++y) {
+        for (int x = 0; x < a.width(); ++x) {
+            GPixel orig = *a.getAddr(x, y);
+            GPixel flip = proc(b, x, y);
+            if (orig != flip) {
+                return false;;
+            }
+        }
+    }
+    return true;
+}
+
+static const char* test_mirror_bitmap(Stats* stats) {
+    const GColor corners[] = {
+        // opaque
+        GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
+        GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+        // per-pixel-alpha
+        GColor::Make(0, 1, 0, 0),    GColor::Make(0.5f, 0, 1, 0),
+        GColor::Make(0.5f, 0, 0, 1), GColor::Make(1, 0, 0, 0),
+    };
+
+    const GColor clearColors[] = {
+        GColor::Make(1, 1, 1, 1),
+        GColor::Make(1, 0, 0, 0),
+        GColor::Make(0, 0, 0, 0),
+    };
+    
+    const float alphaValues[] = { 0, 0.5f, 1 };
+
+    AutoBitmap src(100, 100);
+    AutoBitmap dst0(100, 100);
+    AutoBitmap dst1(100, 100);
+
+    GAutoDelete<GContext> ctx0(GContext::Create(dst0));
+    GAutoDelete<GContext> ctx1(GContext::Create(dst1));
+
+    GPaint paint;
+    
+    for (int j = 0; j < GARRAY_COUNT(corners); j += 4) {
+        app_fill_ramp(src, &corners[j]);
+        for (int i = 0; i < GARRAY_COUNT(clearColors); ++i) {
+            for (int k = 0; k < GARRAY_COUNT(alphaValues); ++k) {
+                paint.setAlpha(alphaValues[k]);
+
+                ctx0->clear(clearColors[i]);
+                ctx0->drawBitmap(src, 0, 0, paint);
+
+                ctx1->clear(clearColors[i]);
+                ctx1->save();
+                ctx1->translate(src.width(), 0);
+                ctx1->scale(-1, 1);
+                ctx1->drawBitmap(src, 0, 0, paint);
+                ctx1->restore();
+                stats->addTrial(cmp_sample(dst0, dst1, sample_mirror_x));
+                
+                ctx1->clear(clearColors[i]);
+                ctx1->save();
+                ctx1->translate(0, src.height());
+                ctx1->scale(1, -1);
+                ctx1->drawBitmap(src, 0, 0, paint);
+                ctx1->restore();
+                stats->addTrial(cmp_sample(dst0, dst1, sample_mirror_y));
+            }
+        }
+    }
+    return "mirror_bitmap";
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+typedef const char* (*TestProc)(Stats*);
 
 static const TestProc gTests[] = {
     test_clear_opaque, test_clear_translucent,
     test_simple_rect, test_rects, test_bad_rects,
     test_bitmap,
+    test_mirror_bitmap,
 };
 
 int main(int argc, char** argv) {
@@ -548,10 +585,13 @@ int main(int argc, char** argv) {
 
     Stats stats;
     for (int i = 0; i < GARRAY_COUNT(gTests); ++i) {
-        gTests[i](&stats);
+        const char* name = gTests[i](&stats);
+        if (gVerbose) {
+            printf("Test %20s %g%%\n", name, stats.localPercent());
+        }
+        stats.nextTest();
     }
-    printf("Tests passed [%3d of %3d] %g%%\n",
-           stats.fTests - stats.fFailures, stats.fTests, stats.percent());
+    printf("Test [%d] %g%%\n", stats.countTests(), stats.totalPercent());
 
     return 0;
 }

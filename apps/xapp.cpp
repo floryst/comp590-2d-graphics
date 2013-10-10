@@ -6,13 +6,15 @@
 
 #include "GXWindow.h"
 #include "GBitmap.h"
-#include "GColor.h"
+#include "GPaint.h"
 #include "GContext.h"
-#include "GIRect.h"
+#include "GRect.h"
 #include "GRandom.h"
 #include "GTime.h"
 #include <string>
 #include <math.h>
+
+static bool gAnimateScale;
 
 static GPixel* next_row(const GBitmap& bm, GPixel* row) {
     return (GPixel*)((const char*)row + bm.fRowBytes);
@@ -39,10 +41,30 @@ static void fill_circle(const GBitmap& bm) {
     }
 }
 
+static GRandom gRand;
+
 class Shape {
 public:
     Shape(float x, float y) : fX(x), fY(y), fA(1) {
         fPrevTime = GTime::GetMSec();
+
+        if (gRand.nextF() > 0.5) {
+            fFlipX = -1;
+        } else {
+            fFlipX = 1;
+        }
+        if (gRand.nextF() > 0.5) {
+            fFlipY = -1;
+        } else {
+            fFlipY = 1;
+        }
+        
+        fScale = 1;
+        if (gAnimateScale) {
+            fDScale = (gRand.nextF() * 2 - 1) * 0.5f;
+        } else {
+            fDScale = 0;
+        }
     }
     virtual ~Shape() {}
 
@@ -52,25 +74,35 @@ public:
     
     void bounce(int w, int h, GMSec now);
 
-    int getX() const { return (int)fX; }
-    int getY() const { return (int)fY; }
-    float getA() const { return fA; }
+    const GPaint& getPaint() const { return fPaint; }
 
-    virtual void draw(GContext*) = 0;
+    void draw(GContext* ctx) {
+        ctx->save();
+        ctx->translate(fX, fY);
+        ctx->scale(fScale * fFlipX, fScale * fFlipY);
+        this->onDraw(ctx);
+        ctx->restore();
+    }
+
+protected:
+    virtual void onDraw(GContext*) = 0;
 
 private:
+    GPaint fPaint;
     float fX, fY, fA;
     float fDx, fDy, fDa;
+    float fFlipX, fFlipY;
+    float fScale, fDScale;
     GMSec  fPrevTime;
 };
 
-static void bounce(float& x, float& dx, float scale, float limit) {
+static void bounce(float& x, float& dx, float scale, float max, float min = 0) {
     x += dx * scale;
-    if (dx > 0 && x > limit) {
-        x = limit;
+    if (dx > 0 && x > max) {
+        x = max;
         dx = -dx;
-    } else if (dx < 0 && x < 0) {
-        x = 0;
+    } else if (dx < 0 && x < min) {
+        x = min;
         dx = -dx;
     }
 }
@@ -82,19 +114,20 @@ void Shape::bounce(int w, int h, GMSec now) {
     ::bounce(fX, fDx, dur, w);
     ::bounce(fY, fDy, dur, h);
     ::bounce(fA, fDa, dur, 1);
+    ::bounce(fScale, fDScale, dur, 2, 0.25f);
+    fPaint.setAlpha(fA);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
 class BitmapShape : public Shape {
 public:
-    BitmapShape(const GBitmap& bm, int x, int y)
-    : Shape(x, y), fBM(bm) {}
+    BitmapShape(const GBitmap& bm, int x, int y) : Shape(x, y), fBM(bm) {}
 
-    virtual void draw(GContext* ctx) {
-        ctx->drawBitmap(fBM,
-                        this->getX() - fBM.width()/2,
-                        this->getY() - fBM.height()/2, this->getA());
+protected:
+    virtual void onDraw(GContext* ctx) {
+        ctx->drawBitmap(fBM, -fBM.width() * 0.5f, -fBM.height() * 0.5f,
+                        this->getPaint());
     }
     
 private:
@@ -125,6 +158,8 @@ public:
                 if (doCircles) {
                     fill_circle(fBitmaps[i]);
                 }
+            } else {
+                fprintf(stderr, "failed to decode %s\n", files[i]);
             }
         }
         fShapeCount = fBitmapCount * repeat;
@@ -189,7 +224,7 @@ private:
 
 int main(int argc, char const* const* argv) {
     if (1 == argc) {
-        fprintf(stderr, "usage: [--circles] [--fade] [--repeat N] file1.png file2.png ...\n");
+        fprintf(stderr, "usage: [--circles] [--fade] [--scale] [--repeat N] file1.png file2.png ...\n");
         return -1;
     }
     
@@ -204,6 +239,8 @@ int main(int argc, char const* const* argv) {
                 docircles = true;
             } else if (!strcmp(argv[i], "--fade")) {
                 dofade = true;
+            } else if (!strcmp(argv[i], "--scale")) {
+                gAnimateScale = true;
             } else if (!strcmp(argv[i], "--repeat") && i < argc - 1) {
                 repeat = atol(argv[++i]);
                 if (repeat < 1) {

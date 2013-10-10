@@ -16,6 +16,12 @@ public:
     size_t rowBytes() const { return fRowBytes; }
     void* pixels() const { return fPixels; }
 
+    GPixel* getAddr(int x, int y) const {
+        GASSERT((unsigned)x < (unsigned)fWidth);
+        GASSERT((unsigned)y < (unsigned)fHeight);
+        return (GPixel*)((char*)fPixels + y * fRowBytes) + x;
+    }
+    
     int     fWidth;     // number of pixels in a row
     int     fHeight;    // number of rows of pixels
     GPixel* fPixels;    // address of first (top) row of pixels

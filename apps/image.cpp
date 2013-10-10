@@ -9,28 +9,11 @@
 
 #include "GContext.h"
 #include "GBitmap.h"
-#include "GColor.h"
+#include "GPaint.h"
 #include "GRandom.h"
-#include "GIRect.h"
+#include "GRect.h"
 
-template <typename T> class GAutoDelete {
-public:
-    GAutoDelete(T* obj) : fObj(obj) {}
-    ~GAutoDelete() { delete fObj; }
-
-    T* get() const { return fObj; }
-    operator T*() { return fObj; }
-    T* operator->() { return fObj; }
-
-    T* detach() {
-        T* obj = fObj;
-        fObj = NULL;
-        return obj;
-    }
-
-private:
-    T*  fObj;
-};
+#include "app_utils.h"
 
 static const GColor gGColor_TRANSPARENT_BLACK = { 0, 0, 0, 0 };
 static const GColor gGColor_BLACK = { 1, 0, 0, 0 };
@@ -58,49 +41,12 @@ static void make_translucent_color(GRandom& rand, GColor* color) {
     color->fB = rand.nextF();
 }
 
-static void translate(GIRect* r, int dx, int dy) {
-    r->fLeft += dx;
-    r->fTop += dy;
-    r->fRight += dx;
-    r->fBottom += dy;
-}
-
-static void make_rand_rect(GRandom& rand, GIRect* r, int w, int h) {
+static void make_rand_rect(GRandom& rand, GRect* r, int w, int h) {
     int cx = rand.nextRange(0, w);
     int cy = rand.nextRange(0, h);
     int cw = rand.nextRange(1, w/4);
     int ch = rand.nextRange(1, h/4);
     r->setXYWH(cx - cw/2, cy - ch/2, cw, ch);
-}
-
-static void assert_unit_float(float x) {
-    GASSERT(x >= 0 && x <= 1);
-}
-
-static int unit_float_to_byte(float x) {
-    GASSERT(x >= 0 && x <= 1);
-    return (int)(x * 255 + 0.5f);
-}
-
-/*
- *  Pins each float value to be [0...1]
- *  Then scales them to bytes, and packs them into a GPixel
- */
-static GPixel color_to_pixel(const GColor& c) {
-    assert_unit_float(c.fA);
-    assert_unit_float(c.fR);
-    assert_unit_float(c.fG);
-    assert_unit_float(c.fB);
-    int a = unit_float_to_byte(c.fA);
-    int r = unit_float_to_byte(c.fR * c.fA);
-    int g = unit_float_to_byte(c.fG * c.fA);
-    int b = unit_float_to_byte(c.fB * c.fA);
-    
-    return GPixel_PackARGB(a, r, g, b);
-}
-
-static GPixel* next_row(const GBitmap& bm, GPixel* row) {
-    return (GPixel*)((char*)row + bm.fRowBytes);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -120,10 +66,12 @@ static GContext* image_primaries(const char** name) {
     GContext* ctx = GContext::Create(W*3, H*3);
     ctx->clear(gGColor_TRANSPARENT_BLACK);
     
+    GPaint paint;
     const GColor* colorPtr = colors;
     for (int y = 0; y < 3; ++y) {
         for (int x = 0; x < 3; ++x) {
-            ctx->fillIRect(GIRect::MakeXYWH(x * W, y * H, W, H), *colorPtr++);
+            paint.setColor(*colorPtr++);
+            ctx->drawRect(GRect::MakeXYWH(x * W, y * H, W, H), paint);
         }
     }
     
@@ -151,12 +99,14 @@ static GContext* image_ramp(const char** name) {
     GContext* ctx = GContext::Create(W, H);
     ctx->clear(gGColor_TRANSPARENT_BLACK);
 
-    GIRect r = GIRect::MakeWH(1, H);
+    GPaint paint;
+    GRect r = GRect::MakeWH(1, H);
     for (int x = 0; x < W; ++x) {
         GColor color;
         lerp(c0, c1, x * 1.0f / W, &color);
-        ctx->fillIRect(r, color);
-        translate(&r, 1, 0);
+        paint.setColor(color);
+        ctx->drawRect(r, paint);
+        r.offset(1, 0);
     }
     *name = "ramp";
     return ctx;
@@ -170,12 +120,14 @@ static GContext* image_rand(const char** name) {
     GContext* ctx = GContext::Create(W, H);
     ctx->clear(gGColor_TRANSPARENT_BLACK);
     
+    GPaint paint;
     GRandom rand;
     for (int y = 0; y < H; y += N) {
         for (int x = 0; x < W; x += N) {
             GColor color;
             make_opaque_color(rand, &color);
-            ctx->fillIRect(GIRect::MakeXYWH(x, y, N, N), color);
+            paint.setColor(color);
+            ctx->drawRect(GRect::MakeXYWH(x, y, N, N), paint);
         }
     }
     *name = "rand";
@@ -189,44 +141,44 @@ static GContext* image_blend(const char** name) {
     GContext* ctx = GContext::Create(W, H);
     ctx->clear(gGColor_BLACK);
     
+    GPaint paint;
     GRandom rand;
     for (int i = 0; i < 400; ++i) {
         GColor color;
         make_translucent_color(rand, &color);
         color.fA /= 2;
+        paint.setColor(color);
 
-        GIRect r;
+        GRect r;
         make_rand_rect(rand, &r, W, H);
-
-        ctx->fillIRect(r, color);
+        ctx->drawRect(r, paint);
     }
     *name = "blend";
     return ctx;
 }
 
-static void fill(GContext* ctx, int L, int T, int R, int B, const GColor& c) {
+static void fill(GContext* ctx, float L, float T, float R, float B,
+                 const GPaint& paint) {
     if (R > L && B > T) {
-        ctx->fillIRect(GIRect::MakeLTRB(L, T, R, B), c);
+        ctx->drawRect(GRect::MakeLTRB(L, T, R, B), paint);
     }
 }
 
-static void frameIRect(GContext* ctx, const GIRect& r, int dx, int dy, const GColor& c) {
+static void frameRect(GContext* ctx, const GRect& r, float dx, float dy,
+                      const GPaint& paint) {
     GASSERT(dx >= 0);
     GASSERT(dy >= 0);
 
-    GIRect inner = r;
-    inner.fLeft += dx;
-    inner.fRight -= dx;
-    inner.fTop += dy;
-    inner.fBottom -= dy;
+    GRect inner = r;
+    inner.inset(dx, dy);
 
     if (inner.width() <= 0 || inner.height() <= 0) {
-        ctx->fillIRect(r, c);
+        ctx->drawRect(r, paint);
     } else {
-        fill(ctx, r.fLeft, r.fTop, r.fRight, inner.fTop, c);
-        fill(ctx, r.fLeft, inner.fTop, inner.fLeft, inner.fBottom, c);
-        fill(ctx, inner.fRight, inner.fTop, r.fRight, inner.fBottom, c);
-        fill(ctx, r.fLeft, inner.fBottom, r.fRight, r.fBottom, c);
+        fill(ctx, r.fLeft, r.fTop, r.fRight, inner.fTop, paint);
+        fill(ctx, r.fLeft, inner.fTop, inner.fLeft, inner.fBottom, paint);
+        fill(ctx, inner.fRight, inner.fTop, r.fRight, inner.fBottom, paint);
+        fill(ctx, r.fLeft, inner.fBottom, r.fRight, r.fBottom, paint);
     }
 }
 
@@ -237,16 +189,18 @@ static GContext* image_frame(const char** name) {
     GContext* ctx = GContext::Create(W, H);
     ctx->clear(gGColor_WHITE);
     
+    GPaint paint;
     GRandom rand;
-    GIRect r;
+    GRect r;
     GColor c;
     for (int i = 0; i < 200; ++i) {
         make_rand_rect(rand, &r, W, H);
         make_translucent_color(rand, &c);
         c.fA = 0.80f;
+        paint.setColor(c);
         int h = rand.nextRange(0, 25);
         int w = rand.nextRange(0, 25);
-        frameIRect(ctx, r, w, h, c);
+        frameRect(ctx, r, w, h, paint);
     }
     *name = "frame";
     return ctx;
@@ -254,70 +208,19 @@ static GContext* image_frame(const char** name) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static float color_dot(const float c[], float s0, float s1, float s2, float s3) {
-    float res = c[0] * s0 + c[4] * s1 + c[8] * s2 + c[12] * s3;
-    GASSERT(res >= 0);
-    // our bilerp can have a tiny amount of error, resulting in a dot-prod
-    // of slightly greater than 1, so we have to pin here.
-    if (res > 1) {
-        res = 1;
-    }
-    return res;
-}
-
-static GColor lerp4colors(const GColor corners[], float dx, float dy) {
-    float LT = (1 - dx) * (1 - dy);
-    float RT = dx * (1 - dy);
-    float RB = dx * dy;
-    float LB = (1 - dx) * dy;
-
-    return GColor::Make(color_dot(&corners[0].fA, LT, RT, RB, LB),
-                        color_dot(&corners[0].fR, LT, RT, RB, LB),
-                        color_dot(&corners[0].fG, LT, RT, RB, LB),
-                        color_dot(&corners[0].fB, LT, RT, RB, LB));
-}
-
-class AutoBitmap : public GBitmap {
-public:
-    AutoBitmap(int width, int height, int slop) {
-        fWidth = width;
-        fHeight = height;
-        fRowBytes = (width + slop) * sizeof(GPixel);
-        fPixels = (GPixel*)malloc(fHeight * fRowBytes);
-    }
-    ~AutoBitmap() {
-        free(fPixels);
-    }
-};
-
-/**
- *  colors[] are for each corner's starting color [LT, RT, RB, LB]
- */
-static void fill_ramp(const GBitmap& bm, const GColor colors[4]) {
-    const float xscale = 1.0f / (bm.width() - 1);
-    const float yscale = 1.0f / (bm.height() - 1);
-
-    GPixel* row = bm.fPixels;
-    for (int y = 0; y < bm.height(); ++y) {
-        for (int x = 0; x < bm.width(); ++x) {
-            GColor c = lerp4colors(colors, x * xscale, y * yscale);
-            row[x] = color_to_pixel(c);
-        }
-        row = next_row(bm, row);
-    }
-}
-
 static GContext* make_ramp(const GColor& clearColor, const GColor corners[4],
                            float globalAlpha) {
     const int W = 256;
     const int H = 256;
+    GPaint paint;
+    paint.setAlpha(globalAlpha);
     
     GContext* ctx = GContext::Create(W, H);
     ctx->clear(clearColor);
     
     AutoBitmap bm(W, H, 17);
-    fill_ramp(bm, corners);
-    ctx->drawBitmap(bm, 0, 0, globalAlpha);
+    app_fill_ramp(bm, corners);
+    ctx->drawBitmap(bm, 0, 0, paint);
     return ctx;
 }
 

@@ -6,8 +6,8 @@
 
 #include "GContext.h"
 #include "GBitmap.h"
-#include "GColor.h"
-#include "GIRect.h"
+#include "GPaint.h"
+#include "GRect.h"
 #include "GRandom.h"
 #include "GTime.h"
 
@@ -101,28 +101,30 @@ static void clear_bench() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static GIRect rand_rect_255(GRandom& rand) {
-    int x = rand.nextU() & 15;
-    int y = rand.nextU() & 15;
-    int w = rand.nextU() & 255;
-    int h = rand.nextU() & 255;
-    return GIRect::MakeXYWH(x, y, w, h);
+static GRect rand_rect_255(GRandom& rand) {
+    float x = rand.nextF() * 15;
+    float y = rand.nextF() * 15;
+    float w = rand.nextF() * 255;
+    float h = rand.nextF() * 255;
+    return GRect::MakeXYWH(x, y, w, h);
 }
 
-static double time_rect(GContext* ctx, const GIRect& rect, float alpha,
-                        GIRect (*proc)(GRandom&)) {
+static double time_rect(GContext* ctx, const GRect& rect, float alpha,
+                        GRect (*proc)(GRandom&)) {
     int loop = 20 * 1000 * gRepeatCount;
     
     GMSec before = GTime::GetMSec();
     GColor color = { alpha, 0, 0, 0 };
     GRandom rand;
+    GPaint paint;
 
     double area = 0;
     if (proc) {
         for (int i = 0; i < loop; ++i) {
-            GIRect r = proc(rand);
+            GRect r = proc(rand);
             color.fR = rand.nextF();
-            ctx->fillIRect(r, color);
+            paint.setColor(color);
+            ctx->drawRect(r, paint);
             // this is not really accurage for 'area', since we should really
             // measure the intersected-area of r w/ the context's bitmap
             area += r.width() * r.height();
@@ -130,7 +132,8 @@ static double time_rect(GContext* ctx, const GIRect& rect, float alpha,
     } else {
         for (int i = 0; i < loop; ++i) {
             color.fR = rand.nextF();
-            ctx->fillIRect(rect, color);
+            paint.setColor(color);
+            ctx->drawRect(rect, paint);
             area += rect.width() * rect.height();
         }
     }
@@ -144,11 +147,11 @@ static void rect_bench() {
     const int W = 256;
     const int H = 256;
     static const struct {
-        int fWidth;
-        int fHeight;
+        float fWidth;
+        float fHeight;
         float fAlpha;
         const char* fDesc;
-        GIRect (*fProc)(GRandom&);
+        GRect (*fProc)(GRandom&);
     } gRec[] = {
         { 2, H,    1.0f,   "opaque narrow", NULL },
         { W, 2,    1.0f,   "opaque   wide", NULL },
@@ -165,7 +168,7 @@ static void rect_bench() {
 
     double total = 0;
     for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
-        GIRect r = GIRect::MakeWH(gRec[i].fWidth, gRec[i].fHeight);
+        GRect r = GRect::MakeWH(gRec[i].fWidth, gRec[i].fHeight);
         double dur = time_rect(ctx, r, gRec[i].fAlpha, gRec[i].fProc);
         if (gVerbose) {
             printf("Rect %s %8.4f per-pixel\n", gRec[i].fDesc, dur);
@@ -225,13 +228,16 @@ static void init(GBitmap* bm, int W, int H) {
     bm->fPixels = (GPixel*)malloc(bm->fRowBytes * bm->fHeight);
 }
 
-static double time_bitmap(GContext* ctx, const GBitmap& bm, float globalAlpha) {
+static double time_bitmap(GContext* ctx, const GBitmap& bm, float alpha) {
     int loop = 1000 * gRepeatCount;
     double area = bm.width() * bm.height();
 
+    GPaint paint;
+    paint.setAlpha(alpha);
+
     GMSec before = GTime::GetMSec();
     for (int i = 0; i < loop; ++i) {
-        ctx->drawBitmap(bm, 0, 0, globalAlpha);
+        ctx->drawBitmap(bm, 0, 0, paint);
     }
     GMSec dur = GTime::GetMSec() - before;
     return dur * 500 * 1000.0 / (loop * area);

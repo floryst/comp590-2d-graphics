@@ -16,6 +16,13 @@
 class GColor {
 public:
     float   fA, fR, fG, fB;
+    
+    void set(float a, float r, float g, float b) {
+        fA = a;
+        fR = r;
+        fG = g;
+        fB = b;
+    }
 
     static GColor Make(float a, float r, float g, float b) {
         GColor c = { a, r, g, b };
