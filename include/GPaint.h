@@ -25,6 +25,13 @@ public:
     
     const GColor& getColor() const { return fColor; }
     void setColor(const GColor& c);
+
+    void setARGB(float a, float r, float g, float b) {
+        this->setColor(GColor::Make(a, r, g, b));
+    }
+    void setRGB(float r, float g, float b) {
+        this->setColor(GColor::Make(1, r, g, b));
+    }
     
 private:
     GColor  fColor;

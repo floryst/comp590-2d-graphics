@@ -264,6 +264,130 @@ static GContext* image_bitmap_blend_alpha(const char** name) {
     return make_ramp(GColor::Make(1, 1, 1, 1), corners, 0.5f);
 }
 
+static GContext* image_rect_trans(const char** name) {
+    *name = "rect_trans";
+    
+    GContext* ctx = GContext::Create(100, 100);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+
+    GPaint paint;
+    paint.setARGB(0.1f, 0, 0, 0);
+
+    GRect r = GRect::MakeWH(25, 100);
+    for (int i = 0; i < 75; ++i) {
+        ctx->drawRect(r, paint);
+        ctx->translate(1, 0);
+    }
+    return ctx;
+}
+
+static GContext* image_rect_scale(const char** name) {
+    *name = "rect_scale";
+    
+    GContext* ctx = GContext::Create(100, 100);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+    
+    GPaint paint;
+    paint.setARGB(0.1f, 0, 0, 0);
+    
+    GRect r = GRect::MakeWH(100, 100);
+    for (int i = 0; i < 30; ++i) {
+        ctx->scale(0.9f, 1);
+        ctx->drawRect(r, paint);
+    }
+    return ctx;
+}
+
+static GContext* image_bitmap_scale_down(const char** name) {
+    const GColor corners[] = {
+        // opaque
+        GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
+        GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+        // w/ alpha
+        GColor::Make(0, 1, 0, 0),   GColor::Make(0.5f, 0, 1, 0),
+        GColor::Make(0.5f, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+    
+    const float alphas[] = { 1, 0.5f };
+    
+    GContext* ctx = GContext::Create(256, 256);
+    ctx->clear(GColor::Make(1, 1, 1, 1));
+    
+    ctx->scale(0.5f, 0.5f);
+    
+    GPaint paint;
+    for (int i = 0; i < GARRAY_COUNT(corners); i += 4) {
+        AutoBitmap bm(256, 256, 7);
+        app_fill_ramp(bm, &corners[i]);
+        for (int j = 0; j < GARRAY_COUNT(alphas); ++j) {
+            paint.setAlpha(alphas[j]);
+            ctx->drawBitmap(bm, (i / 4) * 256, j * 256, paint);
+        }
+    }
+    *name = "bitmap_scale_down";
+    return ctx;
+}
+
+static GContext* image_bitmap_mirror(const char** name) {
+    const GColor corners[] = {
+        // opaque
+        GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
+        GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+
+    const int W = 128;
+    const int H = 128;
+
+    GContext* ctx = GContext::Create(W*2, H*2);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+
+    AutoBitmap bm(W, H, 7);
+    app_fill_ramp(bm, corners);
+
+    const struct {
+        float fSx, fSy, fTx, fTy;
+    } gXforms[] = {
+        { 1, 1, 0, 0 },  { -1, 1, 2*W, 0 },
+        { 1, -1, 0, 2*H }, { -1, -1, 2*W, 2*H }
+    };
+    
+    GPaint paint;
+    for (int i = 0; i < GARRAY_COUNT(gXforms); ++i) {
+        ctx->save();
+        ctx->translate(gXforms[i].fTx, gXforms[i].fTy);
+        ctx->scale(gXforms[i].fSx, gXforms[i].fSy);
+        ctx->drawBitmap(bm, 0, 0, paint);
+        ctx->restore();
+    }
+    *name = "bitmap_mirror";
+    return ctx;
+}
+
+static GContext* image_bitmap_scale_up(const char** name) {
+    const GColor corners[] = {
+        // opaque
+        GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
+        GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+    
+    const int SCALE = 32;
+    const int W = 8;
+    const int H = 8;
+    
+    GContext* ctx = GContext::Create(W*SCALE, H*SCALE);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+    
+    AutoBitmap bm(W, H, 7);
+    app_fill_ramp(bm, corners);
+    
+    GPaint paint;
+    ctx->scale(SCALE, SCALE);
+    ctx->drawBitmap(bm, 0, 0, paint);
+
+    *name = "bitmap_scale_up";
+    return ctx;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 static int max(int a, int b) { return a > b ? a : b; }
@@ -301,7 +425,9 @@ static double compare_bitmaps(const GBitmap& a, const GBitmap& b, int maxDiff) {
 static const ImageProc gProcs[] = {
     image_primaries, image_ramp, image_rand, image_blend, image_frame,
     image_bitmap_solid_opaque, image_bitmap_blend_opaque,
-    image_bitmap_solid_alpha, image_bitmap_blend_alpha
+    image_bitmap_solid_alpha, image_bitmap_blend_alpha,
+    image_rect_trans, image_rect_scale,
+    image_bitmap_scale_down, image_bitmap_mirror, image_bitmap_scale_up
 };
 
 static bool gVerbose;

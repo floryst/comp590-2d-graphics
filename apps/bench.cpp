@@ -243,15 +243,15 @@ static double time_bitmap(GContext* ctx, const GBitmap& bm, float alpha) {
     return dur * 500 * 1000.0 / (loop * area);
 }
 
-static void bitmap_bench() {
+static void bitmap_bench_worker(bool doScale) {
     const int W = 256;
     const int H = 256;
-
+    
     GColor corners[] = {
         GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
         GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
     };
-
+    
     const struct {
         const char* fDesc;
         const float fCornerAlpha;
@@ -269,24 +269,38 @@ static void bitmap_bench() {
         corners[1].fA = corners[2].fA = gRec[i].fCornerAlpha;
         fill_ramp(bitmaps[i], corners);
     }
-
+    
     GContext* ctx = GContext::Create(W, H);
     ctx->clear(GColor::Make(1, 1, 1, 1));
+    
+    const char* name = doScale ? "Bitmap_scale" : "Bitmap";
+    
+    if (doScale) {
+        ctx->scale(1.1f, 1.1f);
+    }
 
     double total = 0;
     for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
         double dur = time_bitmap(ctx, bitmaps[i], gRec[i].fGlobalAlpha);
         if (gVerbose) {
-            printf("Bitmap %s %8.4f per-pixel\n", gRec[i].fDesc, dur);
+            printf("%s %s %8.4f per-pixel\n", name, gRec[i].fDesc, dur);
         }
         total += dur;
     }
-    printf("Bitmap time %7.4f per-pixel\n", total / GARRAY_COUNT(gRec));
-
+    printf("%s time %7.4f per-pixel\n", name, total / GARRAY_COUNT(gRec));
+    
     for (int i = 0; i < GARRAY_COUNT(bitmaps); ++i) {
         free(bitmaps[i].fPixels);
     }
     delete ctx;
+}
+
+static void bitmap_bench() {
+    bitmap_bench_worker(false);
+}
+
+static void bitmap_scale_bench() {
+    bitmap_bench_worker(true);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -297,6 +311,7 @@ static const BenchProc gBenches[] = {
     clear_bench,
     rect_bench,
     bitmap_bench,
+    bitmap_scale_bench,
 };
 
 int main(int argc, char** argv) {

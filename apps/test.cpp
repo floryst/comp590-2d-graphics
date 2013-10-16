@@ -526,9 +526,9 @@ static const char* test_mirror_bitmap(Stats* stats) {
     
     const float alphaValues[] = { 0, 0.5f, 1 };
 
-    AutoBitmap src(100, 100);
-    AutoBitmap dst0(100, 100);
-    AutoBitmap dst1(100, 100);
+    AutoBitmap src(100, 100, 17);
+    AutoBitmap dst0(100, 100, 13);
+    AutoBitmap dst1(100, 100, 23);
 
     GAutoDelete<GContext> ctx0(GContext::Create(dst0));
     GAutoDelete<GContext> ctx1(GContext::Create(dst1));
@@ -565,6 +565,43 @@ static const char* test_mirror_bitmap(Stats* stats) {
     return "mirror_bitmap";
 }
 
+static const char* test_bad_xform_bitmaps(Stats* stats) {
+    const GColor corners[] = {
+        // opaque
+        GColor::Make(1, 1, 0, 0),   GColor::Make(1, 0, 1, 0),
+        GColor::Make(1, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+        // per-pixel-alpha
+        GColor::Make(0, 1, 0, 0),    GColor::Make(0.5f, 0, 1, 0),
+        GColor::Make(0.5f, 0, 0, 1), GColor::Make(1, 0, 0, 0),
+    };
+
+    const struct {
+        float   fX, fY;
+    } gScales[] = {
+        { 0, 1 }, { 1, 0 }, { 0.00001, 1 }, { 1, 0.00001 }
+    };
+
+    AutoBitmap src(100, 100, 3);
+    AutoBitmap dst(100, 100, 11);
+
+    GAutoDelete<GContext> ctx(GContext::Create(dst));
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+
+    GPaint paint;
+
+    for (int i = 0; i < GARRAY_COUNT(corners); i += 4) {
+        app_fill_ramp(src, &corners[i]);
+        for (int j = 0; j < GARRAY_COUNT(gScales); ++j) {
+            ctx->save();
+            ctx->scale(gScales[j].fX, gScales[j].fY);
+            ctx->drawBitmap(src, 10, 10, paint);
+            stats->addTrial(check_pixels(dst, 0, 0));
+            ctx->restore();
+        }
+    }
+    return "bad_xform_bitmap";
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef const char* (*TestProc)(Stats*);
@@ -573,7 +610,7 @@ static const TestProc gTests[] = {
     test_clear_opaque, test_clear_translucent,
     test_simple_rect, test_rects, test_bad_rects,
     test_bitmap,
-    test_mirror_bitmap,
+    test_mirror_bitmap, test_bad_xform_bitmaps,
 };
 
 int main(int argc, char** argv) {
