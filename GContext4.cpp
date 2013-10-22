@@ -7,20 +7,19 @@
 #ifndef GContext0_DEFINED
 #define GContext0_DEFINED
 
+#include <stack>
+#include <algorithm>
+#include "GContext.h"
+#include "GBitmap.h"
+#include "GPaint.h"
+#include "GRect.h"
+#include "GTransform.h"
+
 #define ROUND(x) static_cast<int>((x) + 0.5f)
 #define SCALE255(x) ROUND((x)*255.0f)
 
-#include "GContext.h"
-#include "GBitmap.h"
-#include "GColor.h"
-#include "GIRect.h"
-
-class GBitmap;
-class GColor;
-class GIRect;
-
 // Clamps a given channel to normalized boundaries
-static float inline pin_channel(float channel) {
+static inline float pin_channel(float channel) {
 	if (channel > 1.0f)
 		return 1.0f;
 	if (channel < 0.0f)
@@ -28,29 +27,22 @@ static float inline pin_channel(float channel) {
 	return channel;
 }
 
-static void inline memset32(GPixel* start, GPixel color, int size) {
-	GPixel* p;
-	GPixel* end = p + size;
-	while (p != end)
-		*(p++) = color;
-}
-
-// Tests the intersection of two rectangles.
-// One rectangle has the top-left corner centered at the origin.
-static int intersect(const GIRect& rect, int width, int height, GIRect& rIntersect) {
-	int rTop = rect.fTop < 0 ? 0 : rect.fTop;
-	int rLeft = rect.fLeft < 0 ? 0 : rect.fLeft;
-	int rBottom = rect.fBottom > height ? height : rect.fBottom;
-	int rRight = rect.fRight > width ? width : rect.fRight;
-
-	if (rRight - rLeft <= 0 ||
-		rBottom - rTop <= 0)
-		return 0;
+static inline GIRect pin_rect(const GRect& frect) {
+	int 
+		left = (int)frect.fLeft,
+		right = (int)frect.fRight,
+		bottom = (int)frect.fBottom,
+		top = (int)frect.fTop;
+	if (frect.fLeft - left > 0.5f)
+		left++;
+	if (frect.fTop - top > 0.5f)
+		top++;
+	if (frect.fRight - right > 0.5f)
+		right++;
+	if (frect.fBottom - bottom > 0.5f)
+		bottom++;
 	
-	// Create new rect
-	rIntersect = GIRect::MakeLTRB(rLeft, rTop, rRight, rBottom);
-	return 1;
-
+	return GIRect::MakeLTRB(left, top, right, bottom);
 }
 
 // Applies SRC_OVER given dest and src pixels
@@ -135,19 +127,34 @@ public:
 		}
 	}
 
-	void fillIRect(const GIRect& rect, const GColor& color) {
+	void drawRect(const GRect& rect, const GPaint& paint) {
+		GColor color = paint.getColor();
 		if (color.fA <= 0)
 			return;
 
-		GIRect irect;
-		if (0 == intersect(rect, this->bitmap.fWidth, this->bitmap.fHeight, irect))
+		// Compute the transformed rectangle.
+		float x1 = rect.fLeft;
+		float y1 = rect.fTop;
+		float x2 = rect.fRight;
+		float y2 = rect.fBottom;
+		
+		this->ctm.transform(x1, y1);
+		this->ctm.transform(x2, y2);
+		GRect scaledRect = GRect::MakeLTRB(x1, y1, x2, y2);
+
+		// Get rectangle intersection
+		GRect irect = GRect::MakeEmpty();
+		GRect bmRect = GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight);
+		if (!irect.setIntersection(scaledRect, bmRect))
 			return;
 
-		int rTop = irect.fTop;
-		int rBottom = irect.fBottom;
-		int rLeft = irect.fLeft;
-		int rRight = irect.fRight;
-		int rWidth = irect.width() * sizeof(GPixel);
+		GIRect girect = pin_rect(irect);
+
+		int rTop = girect.fTop;
+		int rBottom = girect.fBottom;
+		int rLeft = girect.fLeft;
+		int rRight = girect.fRight;
+		int rWidth = girect.width() * sizeof(GPixel);
 
 		int bmRowBytes = this->bitmap.fRowBytes;
 		char* bmPixels = reinterpret_cast<char*>(this->bitmap.fPixels);
@@ -180,37 +187,73 @@ public:
 		}
 	}
 
-	void drawBitmap(const GBitmap& srcBitmap, int x, int y, float alpha = 1) {
+	void drawBitmap(const GBitmap& srcBitmap, float x, float y, const GPaint& paint) {
+		float alpha = paint.getAlpha();
 		if (alpha <= 0)
 			return;
-
 		alpha = pin_channel(alpha);
-		// make srcBitmap anchored to the origin
-		GIRect bmRect = GIRect::MakeXYWH(-x, -y, this->bitmap.fWidth, this->bitmap.fHeight);
-		GIRect dstRect;
-		if (0 == intersect(bmRect, srcBitmap.fWidth, srcBitmap.fHeight, dstRect))
+
+		float x1 = x;
+		float y1 = y;
+		float x2 = x + srcBitmap.fWidth;
+		float y2 = y + srcBitmap.fHeight;
+		this->ctm.transform(x1, y1);
+		this->ctm.transform(x2, y2);
+		GRect scaledRect = GRect::MakeLTRB(x1, y1, x2, y2);
+
+		GRect irect = GRect::MakeEmpty();
+		GRect bmRect = GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight);
+		if (!irect.setIntersection(scaledRect, bmRect))
 			return;
 
-		int offsetx = dstRect.x();
-		int offsety = dstRect.y();
-		int dstWidth = dstRect.width();
-		int dstHeight = dstRect.height();
-		int dstBmRowBytes = this->bitmap.fRowBytes;
-		char* dstBmPixels = reinterpret_cast<char*>(this->bitmap.fPixels) +
-			(offsety + y) * dstBmRowBytes +
-			(offsetx + x) * sizeof(GPixel);
-		int srcBmRowBytes = srcBitmap.fRowBytes;
-		char* srcBmPixels = reinterpret_cast<char*>(srcBitmap.fPixels) +
-			offsety * srcBmRowBytes +
-			offsetx * sizeof(GPixel);
+		GIRect girect = pin_rect(irect);
+		
+		int rWidth = girect.width();
+		int rHeight = girect.height();
+		int dstx = girect.fLeft;
+		int dsty = girect.fTop;
 
-		for (y = 0; y < dstHeight; y++) {
-			GPixel* dstYoffset = reinterpret_cast<GPixel*>(dstBmPixels + y * dstBmRowBytes);
-			GPixel* srcYoffset = reinterpret_cast<GPixel*>(srcBmPixels + y * srcBmRowBytes);
-			for (x = 0; x < dstWidth; x++) {
-				apply_src_over(dstYoffset + x, *(srcYoffset + x), alpha);
+		char* srcBmPixels = reinterpret_cast<char*>(srcBitmap.fPixels);
+		int srcBmRowBytes = srcBitmap.fRowBytes;
+		char* dstBmPixels = reinterpret_cast<char*>(this->bitmap.fPixels);
+		int dstBmRowBytes = this->bitmap.fRowBytes;
+
+		GTransform invT = this->ctm.invert();
+
+		int maxx = dstx + rWidth, maxy = dsty + rHeight;
+		int ix, iy;
+		for (iy = dsty; iy < maxy; iy++) {
+			GPixel* dst = reinterpret_cast<GPixel*>(dstBmPixels + iy * dstBmRowBytes);
+			int c, d;
+			c = invT.c;
+			d = invT.e*(iy+0.5f) + invT.f;
+			GPixel* src = reinterpret_cast<GPixel*>(srcBmPixels + ((int)(d-y))*srcBmRowBytes);
+			for (ix = dstx; ix < maxx; ix++) {
+				c += invT.a;
+				apply_src_over(dst + ix, *(src+(int)(c-x)), alpha);
 			}
 		}
+	}
+
+	void translate(float tx, float ty) {
+		GTransform translate(1, 0, tx, 0, 1, ty);
+		this->ctm.preconcat(translate);
+	}
+
+	void scale(float sx, float sy) {
+		GTransform scale(sx, 0, 0, 0, sy, 0);
+		this->ctm.preconcat(scale);
+	}
+
+protected:
+	void onSave() {
+		GTransform saved = this->ctm.clone();
+		this->tmStack.push(saved);
+	}
+
+	void onRestore() {
+		this->ctm = this->tmStack.top();
+		this->tmStack.pop();
 	}
 
 private:
@@ -219,6 +262,12 @@ private:
 
 	// used as a reference to clear the bitmap pixels.
 	GPixel* pixref;
+
+	// current transform matrix;
+	GTransform ctm;
+
+	// transform matrix stack
+	std::stack<GTransform> tmStack;
 };
 
 GContext* GContext::Create(const GBitmap& bitmap) {
