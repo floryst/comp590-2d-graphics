@@ -28,6 +28,7 @@ GPoint<float> GTransform::transform(float x, float y) {
 GRect GTransform::transform(const GRect& rect) {
 	GPoint<float> pt1 = this->transform(rect.fLeft, rect.fTop);
 	GPoint<float> pt2 = this->transform(rect.fRight, rect.fBottom);
+	// preserve top-left and bottom-right coords
 	GRect r = GRect::MakeLTRB(
 		std::min(pt1.x, pt2.x),
 		std::min(pt1.y, pt2.y),
