@@ -7,6 +7,13 @@
 #ifndef GTransform_DEFINED
 #define GTransform_DEFINED
 
+#include "GRect.h"
+
+template <typename T>
+struct GPoint {
+	T x, y;
+};
+
 class GTransform {
 public:
 	/*
@@ -37,7 +44,12 @@ public:
 	/**
 	 * Perform a linear transformation on the point (x,y).
 	 */
-	void transform(float &x, float &y);
+	GPoint<float> transform(float x, float y);
+
+	/**
+	 * Performs a linear transformation on a rectangle.
+	 */
+	GRect transform(const GRect& rect);
 
 	/**
 	 * Inverts the transform matrix.
