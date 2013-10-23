@@ -136,6 +136,9 @@ public:
                       (float)src.fRight, (float)src.fBottom);
         return *this;
     }
+    
+    float centerX() const { return (fLeft + fRight) * 0.5f; }
+    float centerY() const { return (fTop + fBottom) * 0.5f; }
 
     GIRect round() const {
         return GIRect::MakeLTRB(GRoundToInt(fLeft), GRoundToInt(fTop),

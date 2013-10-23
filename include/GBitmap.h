@@ -8,6 +8,7 @@
 #define GBitmap_DEFINED
 
 #include "GPixel.h"
+#include "GRect.h"
 
 class GBitmap {
 public:
@@ -21,7 +22,28 @@ public:
         GASSERT((unsigned)y < (unsigned)fHeight);
         return (GPixel*)((char*)fPixels + y * fRowBytes) + x;
     }
+
+    /**
+     *  Set dst bitmap to point to the subset of this bitmap, as specified by
+     *  r. If the intersection of r with this bitmap is empty, return false
+     *  and leave dst unchanged.
+     *
+     *  Note: this does not allocate new pixels for dst: it has dst point into
+     *  the pixels referenced by this bitmap.
+     */
+    bool extractSubset(const GIRect& r, GBitmap* dst) const {
+        GIRect subR;
+        if (!subR.setIntersection(GIRect::MakeWH(fWidth, fHeight), r)) {
+            return false;
+        }
+        dst->fWidth = subR.width();
+        dst->fHeight = subR.height();
+        dst->fRowBytes = fRowBytes;
+        dst->fPixels = this->getAddr(subR.x(), subR.y());
+        return true;
+    }
     
+
     int     fWidth;     // number of pixels in a row
     int     fHeight;    // number of rows of pixels
     GPixel* fPixels;    // address of first (top) row of pixels
