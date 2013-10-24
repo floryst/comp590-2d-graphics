@@ -222,10 +222,14 @@ public:
 		int ix, iy;
 		for (iy = dsty; iy < maxy; iy++) {
 			GPixel* dst = reinterpret_cast<GPixel*>(dstBmPixels + iy * dstBmRowBytes);
+			// Optimize by inlining transformation code
+			float ty = invT.e*(iy+0.5f) + invT.f;
+			// pull out the tx-x and put it here.
+			float tx = invT.a*(dstx+0.5f)+invT.c - x;
+			GPixel* src = reinterpret_cast<GPixel*>(srcBmPixels + static_cast<int>(ty-y)*srcBmRowBytes);
 			for (ix = dstx; ix < maxx; ix++) {
-				GPoint<float> point = invT.transform(ix+0.5f, iy+0.5f);
-				GPixel* src = reinterpret_cast<GPixel*>(srcBmPixels + ((int)(point.y-y))*srcBmRowBytes);
-				apply_src_over(dst + ix, *(src+(int)(point.x-x)), alpha);
+				apply_src_over(dst + ix, *(src + static_cast<int>(tx)), alpha);
+				tx += invT.a;
 			}
 		}
 	}
