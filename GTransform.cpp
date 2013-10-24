@@ -51,3 +51,8 @@ GTransform GTransform::invert() {
 		-idet * (a*f - c*d));
 	return t;
 }
+
+GTransform GTransform::Create(float a, float b, float c, float d, float e, float f) {
+	GTransform t(a, b, c, d, e, f);
+	return t;
+}

@@ -63,6 +63,8 @@ public:
 		GTransform t(a, b, c, d, e, f);
 		return t;
 	}
+
+	static GTransform Create(float a, float b, float c, float d, float e, float f);
 };
 
 #endif
