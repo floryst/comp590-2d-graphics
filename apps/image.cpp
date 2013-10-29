@@ -486,9 +486,7 @@ int main(int argc, char** argv) {
         GAutoDelete<GContext> ctx(gProcs[i](&name));
         GBitmap drawnBM;
         ctx->getBitmap(&drawnBM);
-        if (gVerbose) {
-            printf("drawing... %s [%d %d]", name, drawnBM.width(), drawnBM.height());
-        }
+        printf("drawing... %s [%d %d]", name, drawnBM.width(), drawnBM.height());
 
         if (writePath) {
             std::string path;
@@ -510,19 +508,14 @@ int main(int argc, char** argv) {
             GBitmap expectedBM;
             if (GReadBitmapFromFile(path.c_str(), &expectedBM)) {
                 double s = compare_bitmaps(expectedBM, drawnBM, tolerance);
-                if (gVerbose) {
-                    printf(" ... match %d%%\n", (int)(s * 100));
-                }
+                printf(" ... match %d%%", (int)(s * 100));
                 score += s;
             } else {
-                printf(" ... failed to read expected image at %s\n",
+                printf(" ... failed to read expected image at %s",
                         path.c_str());
             }
-        } else {
-            if (gVerbose) {
-                printf("\n");
-            }
         }
+        printf("\n");
     }
     
     if (htmlFile) {

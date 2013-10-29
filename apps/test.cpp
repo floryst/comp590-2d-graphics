@@ -119,6 +119,30 @@ static bool check_pixels(const GBitmap& bm, GPixel expected, int maxDiff) {
     return true;
 }
 
+static bool check_border(const GBitmap& bm, GPixel expected) {
+    const int w = bm.width();
+    const int h = bm.height();
+    if (w < 1 || h < 1) {
+        return true;
+    }
+
+    const GPixel* top = bm.getAddr(0, 0);
+    const GPixel* bot = bm.getAddr(0, h - 1);
+    for (int x = 0; x < w; ++x) {
+        if (top[x] != expected || bot[x] != expected) {
+            return false;
+        }
+    }
+
+    for (int y = 1; y < h - 1; ++y) {
+        if (*bm.getAddr(0, y) != expected || *bm.getAddr(w-1, y) != expected) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool check_bitmaps(const GBitmap& a, const GBitmap& b, int maxDiff) {
     GASSERT(a.width() == b.width());
     GASSERT(a.height() == b.height());
@@ -364,44 +388,6 @@ static const char* test_bad_rects(Stats* stats) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static bool intersect(const GIRect& a, const GIRect& b, GIRect* dst) {
-    if (a.isEmpty() || b.isEmpty()) {
-        return false;
-    }
-    if (a.fLeft >= b.fRight || b.fLeft >= a.fRight ||
-        a.fTop >= b.fBottom || b.fTop >= a.fBottom) {
-        return false;
-    }
-    dst->setLTRB(max(a.fLeft, b.fLeft), max(a.fTop, b.fTop),
-                 min(a.fRight, b.fRight), min(a.fBottom, b.fBottom));
-    return true;
-}
-
-static bool intersect2(const GIRect& a, const GIRect& b, GIRect* dst) {
-    int32_t L = max(a.fLeft, b.fLeft);
-    int32_t R = min(a.fRight, b.fRight);
-    int32_t T = max(a.fTop, b.fTop);
-    int32_t B = min(a.fBottom, b.fBottom);
-    
-    if (L < R && T < B) {
-        dst->setLTRB(L, T, R, B);
-        return true;
-    }
-    return false;
-}
-
-static bool extract_subset(const GBitmap& src, const GIRect& r, GBitmap* dst) {
-    GIRect subR;
-    if (!intersect(GIRect::MakeWH(src.width(), src.height()), r, &subR)) {
-        return false;
-    }
-    dst->fWidth = subR.width();
-    dst->fHeight = subR.height();
-    dst->fRowBytes = src.rowBytes();
-    dst->fPixels = src.getAddr(subR.x(), subR.y());
-    return true;
-}
-
 static void rand_fill_opaque(const GBitmap& bm, GRandom rand) {
     for (int y = 0; y < bm.height(); ++y) {
         for (int x = 0; x < bm.width(); ++x) {
@@ -431,9 +417,8 @@ public:
             
             GBitmap device, dev;
             ctx->getBitmap(&device);
-            if (extract_subset(device,
-                               GIRect::MakeXYWH(1, 1, bm.width(), bm.height()),
-                               &dev)) {
+            if (device.extractSubset(GIRect::MakeXYWH(1, 1, bm.width(), bm.height()),
+                                     &dev)) {
                 stats->addTrial(this->check(dev, bm, clearColor));
             }
         }
@@ -574,21 +559,21 @@ static const char* test_bad_xform_bitmaps(Stats* stats) {
         GColor::Make(0, 1, 0, 0),    GColor::Make(0.5f, 0, 1, 0),
         GColor::Make(0.5f, 0, 0, 1), GColor::Make(1, 0, 0, 0),
     };
-
+    
     const struct {
         float   fX, fY;
     } gScales[] = {
         { 0, 1 }, { 1, 0 }, { 0.00001, 1 }, { 1, 0.00001 }
     };
-
+    
     AutoBitmap src(100, 100, 3);
     AutoBitmap dst(100, 100, 11);
-
+    
     GAutoDelete<GContext> ctx(GContext::Create(dst));
     ctx->clear(GColor::Make(0, 0, 0, 0));
-
+    
     GPaint paint;
-
+    
     for (int i = 0; i < GARRAY_COUNT(corners); i += 4) {
         app_fill_ramp(src, &corners[i]);
         for (int j = 0; j < GARRAY_COUNT(gScales); ++j) {
@@ -602,6 +587,79 @@ static const char* test_bad_xform_bitmaps(Stats* stats) {
     return "bad_xform_bitmap";
 }
 
+static const char* test_scaletofit_bitmaps(Stats* stats) {
+    const int W = 100;
+    const int H = 50;
+    
+    // give us room for a pixel of slop around the edge
+    AutoBitmap origDst(W + 2, H + 2);
+    bzero(origDst.fPixels, origDst.fHeight * origDst.fRowBytes);
+    const GPixel clearPixel = 0;
+    
+    GBitmap dst;
+    origDst.extractSubset(GIRect::MakeXYWH(1, 1, W, H), &dst);
+    const float targetX = (float)dst.width();
+    const float targetY = (float)dst.height();
+    
+    GAutoDelete<GContext> ctx(GContext::Create(dst));
+    GPaint paint;
+    
+    // draw various sized bitmaps into dst, scaling each so they fill dst
+    for (int size = 1; size <= W+H; size += 4) {
+        AutoBitmap src(size, size);
+        app_fill_color(src, GColor::Make(1, 1, 0, 0));
+        
+        GPixel pixel = src.fPixels[0]; // all of these should be the same
+        
+        ctx->save();
+        ctx->scale(targetX / size, targetY / size);
+        ctx->drawBitmap(src, 0, 0, paint);
+        ctx->restore();
+        
+        stats->addTrial(check_border(origDst, clearPixel));
+        stats->addTrial(check_pixels(dst, pixel, 0));
+    }
+    return "scale2fit_bitmap";
+}
+
+static const char* test_clamp_bitmap(Stats* stats) {
+    const int W = 100;
+    const int H = 50;
+
+    const GColor white = GColor::Make(1, 1, 1, 1);
+    const GPixel whitePixel = 0xFFFFFFFF;
+
+    // give us room for a pixel of slop around the edge
+    AutoBitmap origSrc(W + 2, H + 2);
+    app_fill_color(origSrc, GColor::Make(1, 0, 0, 0));  // black
+
+    GBitmap src;
+    origSrc.extractSubset(GIRect::MakeXYWH(1, 1, W, H), &src);
+    app_fill_color(src, white);
+    
+    GBitmap dst;
+    GAutoDelete<GContext> ctx(GContext::Create(W + 2, H + 2));
+    ctx->getBitmap(&dst);
+
+    GPaint paint;
+    for (int dstSize = 1; dstSize <= W; dstSize++) {
+        ctx->clear(white);
+
+        float scaleX = dstSize * 1.0f / src.width();
+        float scaleY = dstSize * 1.0f / src.height();
+
+        ctx->save();
+        ctx->scale(scaleX, scaleY);
+        ctx->drawBitmap(src, 0.5f, 0.5f, paint);
+        ctx->restore();
+        
+        // we should see no black, the border color of origSrc, assuming ctx
+        // is correctly clamping their computing x,y values
+        stats->addTrial(check_pixels(dst, whitePixel, 0));
+    }
+    return "clamp_bitmap";
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef const char* (*TestProc)(Stats*);
@@ -610,7 +668,8 @@ static const TestProc gTests[] = {
     test_clear_opaque, test_clear_translucent,
     test_simple_rect, test_rects, test_bad_rects,
     test_bitmap,
-    test_mirror_bitmap, test_bad_xform_bitmaps,
+    test_mirror_bitmap, test_bad_xform_bitmaps, test_scaletofit_bitmaps,
+    test_clamp_bitmap,
 };
 
 int main(int argc, char** argv) {
@@ -623,9 +682,7 @@ int main(int argc, char** argv) {
     Stats stats;
     for (int i = 0; i < GARRAY_COUNT(gTests); ++i) {
         const char* name = gTests[i](&stats);
-        if (gVerbose) {
-            printf("Test %20s %g%%\n", name, stats.localPercent());
-        }
+        printf("Test %20s %g%%\n", name, stats.localPercent());
         stats.nextTest();
     }
     printf("Test [%d] %g%%\n", stats.countTests(), stats.totalPercent());

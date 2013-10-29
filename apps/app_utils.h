@@ -11,7 +11,7 @@
 #include "GColor.h"
 
 class AutoBitmap : public GBitmap {
-    public:
+public:
     AutoBitmap(int width, int height, int slop = 13) {
         fWidth = width;
         fHeight = height;
@@ -76,6 +76,20 @@ static GColor lerp4colors(const GColor corners[], float dx, float dy) {
                         color_dot(&corners[0].fR, LT, RT, RB, LB),
                         color_dot(&corners[0].fG, LT, RT, RB, LB),
                         color_dot(&corners[0].fB, LT, RT, RB, LB));
+}
+
+/**
+ *  fill a bitmap with a single color
+ */
+static void app_fill_color(const GBitmap& bm, const GColor& color) {
+    const GPixel pixel = color_to_pixel(color);
+    for (int y = 0; y < bm.height(); ++y) {
+        GPixel* row = bm.getAddr(0, y);
+        for (int x = 0; x < bm.width(); ++x) {
+            row[x] = pixel;
+        }
+        row = next_row(bm, row);
+    }
 }
 
 /**

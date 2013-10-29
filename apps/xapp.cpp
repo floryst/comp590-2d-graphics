@@ -120,6 +120,27 @@ void Shape::bounce(int w, int h, GMSec now) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+class RectShape : public Shape {
+public:
+    RectShape(const GBitmap& bm, int x, int y) : Shape(x, y) {
+        fRect.setXYWH(x, y, bm.width(), bm.height());
+        fRect.offset(-fRect.centerX(), -fRect.centerY());
+
+        fPaint.setRGB(gRand.nextF(), gRand.nextF(), gRand.nextF());
+    }
+    
+protected:
+    virtual void onDraw(GContext* ctx) {
+        fPaint.setAlpha(this->getPaint().getAlpha());
+        ctx->drawRect(fRect, fPaint);
+    }
+    
+private:
+    GRect fRect;
+    GPaint fPaint;
+};
+
+
 class BitmapShape : public Shape {
 public:
     BitmapShape(const GBitmap& bm, int x, int y) : Shape(x, y), fBM(bm) {}
@@ -142,7 +163,8 @@ class TestWindow : public GXWindow {
 public:
     TestWindow(int w, int h,
                char const* const* files, int fileCount,
-               bool doCircles, bool doFade, int repeat) : GXWindow(w, h) {
+               bool doCircles, bool doFade, bool doRects,
+               int repeat) : GXWindow(w, h) {
         fDoOpaque = true;
         fStartTime = GTime::GetMSec();
         fCounter = 0;
@@ -162,12 +184,17 @@ public:
                 fprintf(stderr, "failed to decode %s\n", files[i]);
             }
         }
+
         fShapeCount = fBitmapCount * repeat;
         fShapes = new Shape*[fShapeCount];
 
         float speed = 300;
         for (int i = 0; i < fShapeCount; ++i) {
-            fShapes[i] = new BitmapShape(fBitmaps[i % fBitmapCount], w/2, h/2);
+            if (doRects) {
+                fShapes[i] = new RectShape(fBitmaps[i % fBitmapCount], w/2, h/2);
+            } else {
+                fShapes[i] = new BitmapShape(fBitmaps[i % fBitmapCount], w/2, h/2);
+            }
             fShapes[i]->setup(rand.nextF() * speed,
                               rand.nextF() * speed,
                               doFade ? rand.nextF() : 0);
@@ -230,6 +257,7 @@ int main(int argc, char const* const* argv) {
     
     bool docircles = false;
     bool dofade = false;
+    bool doRects = false;
     int repeat = 1;
     int firstFile = argc;
 
@@ -246,6 +274,8 @@ int main(int argc, char const* const* argv) {
                 if (repeat < 1) {
                     repeat = 1;
                 }
+            } else if (!strcmp(argv[i], "--rects")) {
+                doRects = true;
             } else {
                 fprintf(stderr, "unrecognized option %s\n", argv[i]);
                 return -1;
@@ -263,6 +293,6 @@ int main(int argc, char const* const* argv) {
 
     return TestWindow(640, 480,
                       &argv[firstFile], count,
-                      docircles, dofade, repeat).run();
+                      docircles, dofade, doRects, repeat).run();
 }
 
