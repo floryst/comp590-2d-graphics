@@ -235,19 +235,11 @@ public:
 	}
 
 	void translate(float tx, float ty) {
-		GTransform translate(1, 0, tx, 0, 1, ty);
-		this->ctm.preconcat(translate);
+		this->ctm.translate(tx, ty);
 	}
 
 	void scale(float sx, float sy) {
-		// move to origin
-		float offsetx = this->ctm.c;
-		float offsety = this->ctm.f;
-		this->ctm.preconcat(GTransform::Create(1, 0, -offsetx, 0, 1, -offsety));
-		// scale
-		this->ctm.preconcat(GTransform::Create(sx, 0, 0, 0, sy, 0));
-		// move back
-		this->ctm.preconcat(GTransform::Create(1, 0, offsetx, 0, 1, offsety));
+		this->ctm.scale(sx, sy);
 	}
 
 protected:

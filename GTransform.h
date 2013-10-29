@@ -36,10 +36,20 @@ public:
 		a(a), b(b), c(c), d(d), e(e), f(f) {}
 
 	/**
-	 * Preconcats the current matrix with given matrix.
+	 * Concatenates the current matrix with given matrix.
 	 *  (other) * (this)
 	 */
-	void preconcat(const GTransform& other);
+	void cat(const GTransform& other);
+
+	/**
+	 * Translates a matrix
+	 */
+	void translate(float tx, float ty);
+
+	/**
+	 * Scales a matrix.
+	 */
+	void scale(float sx, float sy);
 
 	/**
 	 * Perform a linear transformation on the point (x,y).

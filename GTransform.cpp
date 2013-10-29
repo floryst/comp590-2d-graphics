@@ -8,7 +8,7 @@
 #include "GTransform.h"
 #include "GRect.h"
 
-void GTransform::preconcat(const GTransform& other) {
+void GTransform::cat(const GTransform& other) {
 	float _a = a, _b = b, _c = c, _d = d, _e = e, _f = f;
 	a = other.a * _a + other.b * _d;
 	b = other.a * _b + other.b * _e;
@@ -16,6 +16,21 @@ void GTransform::preconcat(const GTransform& other) {
 	d = other.d * _a + other.e * _d;
 	e = other.d * _b + other.e * _e;
 	f = other.d * _c + other.e * _f + other.f;
+}
+
+void GTransform::translate(float tx, float ty) {
+	c += tx;
+	f += ty;
+}
+
+void GTransform::scale(float sx, float sy) {
+	float offsetx = c;
+	float offsety = f;
+	// move to origin
+	this->translate(-offsetx, -offsety);
+	this->cat(GTransform::Create(sx, 0, 0, 0, sy, 0));
+	// move back
+	this->translate(offsetx, offsety);
 }
 
 GPoint<float> GTransform::transform(float x, float y) {
