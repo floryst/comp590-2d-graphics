@@ -9,37 +9,29 @@
 
 #include "GRect.h"
 
-template <typename T>
+#define EPSILON	0.00000001
+
 struct GPoint {
-	T x, y;
+	float  x, y;
 };
 
 class GTransform {
 public:
-	/*
-	 * Represents a 3x3 transform matrix.
-	 *  a b c
-	 *  d e f
-	 *  0 0 1
-	 */
-	float a, b, c, d, e, f;
+	float scaleX, scaleY, transX, transY;
 
 	/**
 	 * Create the identity matrix.
 	 */
 	GTransform() {
-		a = e = 1;
-		b = c = d = f = 0;
+		scaleX = scaleY = 1;
+		transX = transY = 0;
 	}
-
-	GTransform(float a, float b, float c, float d, float e, float f) :
-		a(a), b(b), c(c), d(d), e(e), f(f) {}
 
 	/**
 	 * Concatenates the current matrix with given matrix.
 	 *  (other) * (this)
 	 */
-	void cat(const GTransform& other);
+	void precat(const GTransform& other);
 
 	/**
 	 * Translates a matrix
@@ -54,12 +46,12 @@ public:
 	/**
 	 * Perform a linear transformation on the point (x,y).
 	 */
-	GPoint<float> transform(float x, float y);
+	GPoint map(float x, float y);
 
 	/**
 	 * Performs a linear transformation on a rectangle.
 	 */
-	GRect transform(const GRect& rect);
+	GRect map(const GRect& rect);
 
 	/**
 	 * Inverts the transform matrix.
@@ -70,11 +62,20 @@ public:
 	 * Clones the current transform.
 	 */
 	GTransform clone() {
-		GTransform t(a, b, c, d, e, f);
+		GTransform t;
+		t.scaleX = scaleX;
+		t.scaleY = scaleY;
+		t.transX = transX;
+		t.transY = transY;
 		return t;
 	}
 
-	static GTransform Create(float a, float b, float c, float d, float e, float f);
+	/**
+	 * Check to see if transform doesn't change scale.
+	 */
+	bool isOriginalScale() {
+		return scaleX == 1 && scaleY == 1;
+	}
 };
 
 #endif

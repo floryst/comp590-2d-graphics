@@ -28,24 +28,6 @@ static inline float pin_channel(float channel) {
 	return channel;
 }
 
-static inline GIRect pin_rect(const GRect& frect) {
-	int 
-		left = (int)frect.fLeft,
-		right = (int)frect.fRight,
-		bottom = (int)frect.fBottom,
-		top = (int)frect.fTop;
-	if (frect.fLeft - left > 0.5f)
-		left++;
-	if (frect.fTop - top > 0.5f)
-		top++;
-	if (frect.fRight - right > 0.5f)
-		right++;
-	if (frect.fBottom - bottom > 0.5f)
-		bottom++;
-	
-	return GIRect::MakeLTRB(left, top, right, bottom);
-}
-
 // Applies SRC_OVER given dest and src pixels
 // Will write the composite pixel to *dst
 // src pixel will be in GPixel format.
@@ -111,6 +93,49 @@ static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
 	}
 }
 
+static void src_over_bitmap(const GBitmap& bitmap, const GColor& color) {
+	// clamping
+	float alpha, red, green, blue;
+	alpha = pin_channel(color.fA);
+	red = pin_channel(color.fR);
+	green = pin_channel(color.fG);
+	blue = pin_channel(color.fB);
+
+	GPixel pixel = GPixel_PackARGB(
+		SCALE_255(alpha),
+		SCALE_255(red * alpha),
+		SCALE_255(green * alpha),
+		SCALE_255(blue * alpha));
+
+	int x, y;
+	int bmHeight = bitmap.fHeight;
+	int bmWidth = bitmap.fWidth;
+	int bmRowBytes = bitmap.fRowBytes;
+
+	// Optimize for well aligned (to sizeof(GPixel)) images
+	if (bmRowBytes % sizeof(GPixel) == 0) {
+		GPixel* bmPixels = bitmap.fPixels;
+		int bmRowPixels = bmRowBytes / sizeof(GPixel);
+		for (; bmHeight > 0; bmHeight--) {
+			for (x = 0; x < bmWidth; x++) {
+				apply_src_over(bmPixels + x, pixel);
+			}
+			bmPixels += bmRowPixels;
+		}
+	}
+	// Worst case, image is not well aligned
+	else {
+		char* bmPixels = reinterpret_cast<char*>(bitmap.fPixels);
+		for (; bmHeight > 0; bmHeight--) {
+			GPixel* bmoffset = reinterpret_cast<GPixel*>(bmPixels);
+			for (x = 0; x < bmWidth; x++) {
+				apply_src_over(bmoffset + x, pixel);
+			}
+			bmPixels += bmRowBytes;
+		}
+	}
+}
+
 class GContext0 : public GContext {
 public:
 
@@ -137,9 +162,8 @@ public:
 		if (color.fA <= 0)
 			return;
 
-		GRect trect = this->ctm.transform(rect);
-
 		GBitmap subBitmap;
+		GRect trect = this->ctm.map(rect);
 		if (!this->bitmap.extractSubset(trect.round(), &subBitmap))
 			return;
 
@@ -150,45 +174,7 @@ public:
 		}
 		// alpha blending with src_over
 		else {
-			// clamping
-			float red, green, blue;
-			red = pin_channel(color.fR);
-			green = pin_channel(color.fG);
-			blue = pin_channel(color.fB);
-
-			GPixel pixel = GPixel_PackARGB(
-				SCALE_255(alpha),
-				SCALE_255(red * alpha),
-				SCALE_255(green * alpha),
-				SCALE_255(blue * alpha));
-
-			int x, y;
-			int bmHeight = subBitmap.fHeight;
-			int bmWidth = subBitmap.fWidth;
-			int bmRowBytes = subBitmap.fRowBytes;
-
-			// Optimize for well aligned (to sizeof(GPixel)) images
-			if (bmRowBytes % sizeof(GPixel) == 0) {
-				GPixel* bmPixels = subBitmap.fPixels;
-				int bmRowPixels = bmRowBytes / sizeof(GPixel);
-				for (; bmHeight > 0; bmHeight--) {
-					for (x = 0; x < bmWidth; x++) {
-						apply_src_over(bmPixels + x, pixel);
-					}
-					bmPixels += bmRowPixels;
-				}
-			}
-			// Worst case, image is not well aligned
-			else {
-				char* bmPixels = reinterpret_cast<char*>(subBitmap.fPixels);
-				for (; bmHeight > 0; bmHeight--) {
-					GPixel* bmoffset = reinterpret_cast<GPixel*>(bmPixels);
-					for (x = 0; x < bmWidth; x++) {
-						apply_src_over(bmoffset + x, pixel);
-					}
-					bmPixels += bmRowBytes;
-				}
-			}
+			src_over_bitmap(subBitmap, color);
 		}
 	}
 
@@ -198,13 +184,65 @@ public:
 			return;
 		alpha = pin_channel(alpha);
 
-		GRect srcBitmapRect = GRect::MakeLTRB(x, y, x+srcBitmap.fWidth, y+srcBitmap.fHeight);
-		GRect trect = this->ctm.transform(srcBitmapRect);
-
-		GRect intrect;
-		if (!intrect.setIntersection(GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight), trect))
+		GRect intersection;
+		GRect srcRect = GRect::MakeWH(srcBitmap.fWidth, srcBitmap.fHeight);
+		
+		this->save();
+		this->ctm.translate(x, y);
+		GRect srcTRect = this->ctm.map(srcRect);
+		
+		if (!intersection.setIntersection(
+				GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight), srcTRect)) {
+			this->restore();
 			return;
-		GIRect irect = intrect.round();
+		}
+
+		GIRect srcIRect = intersection.round();
+		int width = srcIRect.width();
+		int height = srcIRect.height();
+		int dstX = srcIRect.fLeft;
+		int dstY = srcIRect.fTop;
+
+		char* srcPixels = reinterpret_cast<char*>(srcBitmap.fPixels);
+		int srcRowBytes = srcBitmap.fRowBytes;
+		char* dstPixels = reinterpret_cast<char*>(this->bitmap.fPixels);
+		int dstRowBytes = this->bitmap.fRowBytes;
+
+		GTransform invT = this->ctm.invert();
+
+		int ix, iy;
+		for (iy = dstY; iy < dstY + height; iy++) {
+			for (ix = dstX; ix < dstX + width; ix++) {
+				GPoint pt = invT.map(ix + 0.5f, iy + 0.5f);
+				int nx = (int)floorf(pt.x);
+				int ny = (int)floorf(pt.y);
+				GPixel* dst = 
+						reinterpret_cast<GPixel*>(dstPixels + dstRowBytes * iy) + ix;
+				GPixel* src =
+						reinterpret_cast<GPixel*>(srcPixels + srcRowBytes * ny) + nx;
+				apply_src_over(dst, *src, alpha);
+			}
+		}
+
+		this->restore();
+
+		/*
+		float alpha = paint.getAlpha();
+		if (alpha <= 0)
+			return;
+		alpha = pin_channel(alpha);
+
+		GRect intersectRect;
+		GRect srcRect = GRect::MakeWH(srcBitmap.fWidth, srcBitmap.fHeight);
+		this->save();
+		this->ctm.translate(x, y);
+		GRect srcRectT = this->ctm.map(srcRect); 
+		if (!intersectRect.setIntersection(
+			GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight), srcRectT)) {
+			this->restore();
+			return;
+		}
+		GIRect irect = intersectRect.round();
 
 		int rWidth = irect.width();
 		int rHeight = irect.height();
@@ -222,6 +260,19 @@ public:
 		int ix, iy;
 		for (iy = dsty; iy < maxy; iy++) {
 			GPixel* dst = reinterpret_cast<GPixel*>(dstBmPixels + iy * dstBmRowBytes);
+			for (ix = dstx; ix < maxx; ix++) {
+				GPoint pt = invT.map(ix+0.5f, iy+0.5f);
+				GPixel* src = reinterpret_cast<GPixel*>(srcBmPixels + GRoundToInt(pt.y)*srcBmRowBytes);
+				apply_src_over(dst + ix, *(src + GRoundToInt(pt.x)), alpha);
+			}
+		}
+		this->restore();
+
+		*
+		int maxx = dstx + rWidth, maxy = dsty + rHeight;
+		int ix, iy;
+		for (iy = dsty; iy < maxy; iy++) {
+			GPixel* dst = reinterpret_cast<GPixel*>(dstBmPixels + iy * dstBmRowBytes);
 			// Optimize by inlining transformation code
 			float ty = invT.e*(iy+0.5f) + invT.f;
 			// pull out the tx-x and put it here.
@@ -231,7 +282,13 @@ public:
 				apply_src_over(dst + ix, *(src + static_cast<int>(tx)), alpha);
 				tx += invT.a;
 			}
-		}
+		}*/
+	}
+
+	void drawTriangle(const GPoint vertices[3], const GPaint&) {
+	}
+
+	void drawConvexPolygon(const GPoint vertices[], int count, const GPaint&) {
 	}
 
 	void translate(float tx, float ty) {
