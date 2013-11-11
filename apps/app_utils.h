@@ -10,6 +10,9 @@
 #include "GBitmap.h"
 #include "GColor.h"
 
+class GContext;
+class GPaint;
+
 class AutoBitmap : public GBitmap {
 public:
     AutoBitmap(int width, int height, int slop = 13) {
@@ -108,5 +111,9 @@ static void app_fill_ramp(const GBitmap& bm, const GColor colors[4]) {
         row = next_row(bm, row);
     }
 }
+
+void app_draw_convexpoly(GContext*, const GPoint[], int count, const GPaint&);
+void app_draw_convexpoly(GContext*, const GPoint[], int count, const GPaint[]);
+
 
 #endif

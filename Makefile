@@ -1,9 +1,9 @@
 CC = g++ -g
 
-CC_DEBUG = $(CC) 
-CC_RELEASE = $(CC) -O3 -DNDEBUG
+CC_DEBUG = @$(CC)
+CC_RELEASE = @$(CC) -O3 -DNDEBUG
 
-G_SRC = src/GBitmap.cpp src/GTime.cpp src/GPaint.cpp *.cpp
+G_SRC = src/GContext_base.cpp src/GBitmap.cpp src/GTime.cpp src/GPaint.cpp *.cpp
 
 # need libpng to build
 #
@@ -22,12 +22,13 @@ image : apps/image.cpp $(G_SRC)
 
 # needs xwindows to build
 #
-X_INC = -I/usr/X11R6/include -I/usr/X11R6/include/X11 -L/usr/X11R6/lib -L/usr/X11R6/lib/X11 -lX11
+X_INC = -I/usr/X11R6/include -I/usr/X11R6/include/X11 -L/usr/X11R6/lib -L/usr/X11R6/lib/X11
 
-xapp: apps/xapp.cpp $(G_SRC) src/GXWindow.cpp include/GXWindow.h
-	$(CC_RELEASE) $(X_INC) $(G_INC) $(G_SRC) apps/xapp.cpp src/GXWindow.cpp -lpng -o xapp
+XAPP_SRC = apps/xapp.cpp src/GXWindow.cpp
 
+xapp: $(XAPP_SRC) $(G_SRC)
+	$(CC_RELEASE) $(X_INC) $(G_INC) $(G_SRC) $(XAPP_SRC) -lpng -lX11 -o xapp
 
 clean:
-	rm -rf test bench image xapp *.dSYM
+	@rm -rf test bench image xapp *.dSYM
 

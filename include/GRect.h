@@ -4,10 +4,10 @@
  *  COMP 590 -- Fall 2013
  */
 
-#ifndef GIRect_DEFINED
-#define GIRect_DEFINED
+#ifndef GRectT_DEFINED
+#define GRectT_DEFINED
 
-#include "GTypes.h"
+#include "GPoint.h"
 
 template <typename T> class GRectT {
 public:
@@ -57,8 +57,9 @@ public:
         fBottom -= dy;
     }
     
-    bool contains(T x, T y) const {
-        return fLeft <= x && x < fRight && fTop <= y && y < fBottom;
+    bool contains(const GRectT<T>& r) const {
+        return fLeft <= r.fLeft && fTop <= r.fTop &&
+               r.fRight <= fRight && r.fBottom <= fBottom;
     }
 
     void sort() {
@@ -140,6 +141,27 @@ public:
     float centerX() const { return (fLeft + fRight) * 0.5f; }
     float centerY() const { return (fTop + fBottom) * 0.5f; }
 
+    GRect& setBounds(const GPoint pts[], int count) {
+        if (count <= 0) {
+            this->setEmpty();
+        } else {
+            float minx = pts[0].x();
+            float maxx = minx;
+            float miny = pts[0].y();
+            float maxy = miny;
+            for (int i = 1; i < count; ++i) {
+                float x = pts[i].x();
+                float y = pts[i].y();
+                minx = GMin(minx, x);
+                maxx = GMax(maxx, x);
+                miny = GMin(miny, y);
+                maxy = GMax(maxy, y);
+            }
+            this->setLTRB(minx, miny, maxx, maxy);
+        }
+        return *this;
+    }
+    
     GIRect round() const {
         return GIRect::MakeLTRB(GRoundToInt(fLeft), GRoundToInt(fTop),
                                 GRoundToInt(fRight), GRoundToInt(fBottom));

@@ -21,6 +21,10 @@ static const GColor GColor_TRANSPARENT = { 0,  0, 0, 0 };
 static const GColor GColor_WHITE = { 1, 1, 1, 1 };
 static const GColor GColor_BLACK = { 1, 0, 0, 0 };
 
+static const GPixel GPixel_TRANSPARENT = 0;
+static const GPixel GPixel_BLACK = 0xFF << GPIXEL_SHIFT_A;
+static const GPixel GPixel_WHITE = 0xFFFFFFFF;
+
 ///////////////////////////////////////////////////////////////////////////////
 
 static bool gVerbose;
@@ -43,6 +47,7 @@ struct Stats {
     void nextTest() {
         ++fTests;
         fScore += this->localPercent();
+        fTrials = fFailures = 0;
     }
 
     int countTests() const { return fTests; }
@@ -662,6 +667,280 @@ static const char* test_clamp_bitmap(Stats* stats) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+struct GIPoint {
+    int     fX;
+    int     fY;
+};
+
+static bool point_in_list(int x, int y, const GIPoint pts[], int count) {
+    for (int i = 0; i < count; ++i) {
+        if (pts[i].fX == x && pts[i].fY == y) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool check_pixels_bgfg(const GBitmap& bm, GPixel bg, const GIPoint pts[],
+                              int count, GPixel fg) {
+    for (int y = 0; y < bm.height(); ++y) {
+        for (int x = 0; x < bm.width(); ++x) {
+            GPixel expected = bg;
+            if (point_in_list(x, y, pts, count)) {
+                expected = fg;
+            }
+            GPixel found = *bm.getAddr(x, y);
+            if (expected != found) {
+                fprintf(stderr, "bgfg[%d %d] expected %X found %X\n", x, y, expected, found);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void dumppts(const GPoint pts[], int count) {
+    for (int i = 0; i < count; ++i) {
+        fprintf(stderr, "[%g %g] ", pts[i].fX, pts[i].fY);
+    }
+}
+
+class Permuter {
+public:
+    Permuter(const GPoint pts[3]) {
+        memcpy(fOrig, pts, 3 * sizeof(GPoint));
+        fOffset = 0;
+        fSwap = false;
+        this->setup();
+    }
+
+    operator const GPoint*() const { return fPts; }
+    const GPoint* pts() const { return fPts; }
+    
+    bool done() const {
+        return fOffset > 2;
+    }
+
+    void next() {
+        if (fSwap) {
+            fOffset += 1;
+        }
+        fSwap = !fSwap;
+        this->setup();
+    }
+
+    void dump() const { dumppts(fPts, 3); fprintf(stderr, "\n"); }
+
+private:
+    GPoint  fOrig[3];
+    GPoint  fPts[3];
+    int     fOffset;
+    bool    fSwap;
+
+    // setup fPts for the current permutation of fOrig
+    void setup() {
+        for (int i = 0; i < 3; ++i) {
+            fPts[i] = fOrig[(i + fOffset) % 3];
+        }
+        if (fSwap) {
+            GSwap(fPts[0], fPts[2]);
+        }
+    }
+};
+
+/*
+ *  Draw 1 triangle, expecting 1 pixel
+ */
+static const char* test_simple_tris(Stats* stats) {
+    const int W = 3;
+    const int H = 3;
+    AutoBitmap dst(W, H, 19);
+    GAutoDelete<GContext> ctx(GContext::Create(dst));
+
+    // all of these should draw 1 pixel at 1,1
+    // none of these are on 0.5, since that might be harder to get right
+    const GPoint tris[] = {
+        { 1.25f, 1 },   { 2, 1.25f },   { 1, 2 },
+        { 1, 1 },       { 2, 1.67f },   { 1.33f, 2 },
+        { 1.5f, 1 },    { 1, 2 },       { 2, 2 },
+        { 1, 1 },       { 1.5f, 2 },    { 2, 1 },
+    };
+
+    GPaint paint;
+    paint.setColor(GColor_WHITE);
+
+    const GPixel bg = GPixel_BLACK;
+    const GPixel fg = GPixel_WHITE;
+    const GIPoint fgPts[] = { 1, 1 };
+
+    for (int i = 0; i < GARRAY_COUNT(tris); i += 3) {
+        Permuter perm(&tris[i]);
+        for (; !perm.done(); perm.next()) {
+            ctx->clear(GColor_BLACK);
+            GASSERT(check_pixels(dst, bg, 0));
+
+            ctx->drawTriangle(perm, paint);
+            stats->addTrial(check_pixels_bgfg(dst, bg, fgPts, GARRAY_COUNT(fgPts), fg));
+        }
+    }
+    return "simple_tris";
+}
+
+// Returns 4 triangles
+//  [0] [1] [2]
+//  [2] [3] [4]
+//  [4] [5] [6]
+//  [6] [7] [8]
+static void rect_to_tris(const GRect& rect, GPoint tris[9]) {
+    tris[0].set(rect.fLeft, rect.fTop);
+    tris[1].set(rect.fRight, rect.fTop);
+    tris[2].set(rect.fRight, rect.fBottom);
+    tris[3].set(rect.fLeft, rect.fBottom);
+    tris[4].set(rect.fLeft, rect.fTop);
+    tris[5].set(rect.fRight, rect.fTop);
+    tris[6].set(rect.fLeft, rect.fBottom);
+    tris[7].set(rect.fRight, rect.fBottom);
+    tris[8].set(rect.fRight, rect.fTop);
+}
+
+static GPixel compute_pixel(const GColor& clearColor, const GPaint& paint) {
+    GContext* ctx = GContext::Create(1, 1);
+    ctx->clear(clearColor);
+    ctx->drawRect(GRect::MakeXYWH(0, 0, 1, 1), paint);
+
+    GBitmap bitmap;
+    ctx->getBitmap(&bitmap);
+    GPixel pixel = *bitmap.getAddr(0, 0);
+    delete ctx;
+    return pixel;
+}
+
+#define INVALID_IPT { -1, -1 }
+
+/*
+ *  Draw rects as 2 tris, asserting that we hit every pixel inside the rect once
+ */
+static const char* test_rect_tris(Stats* stats) {
+    const int W = 4;
+    const int H = 4;
+    AutoBitmap dst(W, H, 19);
+    GAutoDelete<GContext> ctx(GContext::Create(dst));
+    
+    const struct {
+        GRect   fRect;
+        int     fCount;
+        GIPoint fPts[4];
+    } rec[] = {
+        {
+            GRect::MakeLTRB(1, 1, 2, 2),     1,
+            { { 1, 1 }, INVALID_IPT, INVALID_IPT, INVALID_IPT }
+        },
+        {
+            GRect::MakeLTRB(1, 1, 3, 2),     2,
+            { { 1, 1 }, { 2, 1 }, INVALID_IPT, INVALID_IPT }
+        },
+        {
+            GRect::MakeLTRB(1, 1, 2, 3),     2,
+            { { 1, 1 }, { 1, 2 }, INVALID_IPT, INVALID_IPT }
+        },
+        {
+            GRect::MakeLTRB(1, 1, 3, 3),     4,
+            { { 1, 1 }, { 1, 2 }, { 2, 1 }, { 2, 2 } }
+        },
+    };
+
+    const GColor bgColor = GColor_BLACK;
+    const GColor fgColor = GColor::Make(0.5f, 1, 1, 1);
+    GPaint paint;
+    paint.setColor(fgColor);
+    GPixel fg = compute_pixel(bgColor, paint);
+
+    for (int i = 0; i < GARRAY_COUNT(rec); ++i) {
+        GPoint storage[9];
+        rect_to_tris(rec[i].fRect, storage);
+
+        // perform this twice, to get both variations of the pair of triangles
+        // that cover the rect.
+        for (int j = 0; j < 2; ++j) {
+            ctx->clear(GColor_BLACK);
+            GASSERT(check_pixels(dst, GPixel_BLACK, 0));
+
+            const GPoint* tris = &storage[j * 4];
+            ctx->drawTriangle(&tris[0], paint);
+            ctx->drawTriangle(&tris[2], paint);
+            
+            stats->addTrial(check_pixels_bgfg(dst, GPixel_BLACK,
+                                          rec[i].fPts, rec[i].fCount, fg));
+        }
+    }
+    return "rect_tris";
+}
+
+static void test_tris_dont_draw(GContext* ctx, const GPoint tris[], int count,
+                                Stats* stats) {
+    GBitmap bm;
+    ctx->getBitmap(&bm);
+
+    GPaint paint;
+    paint.setColor(GColor_WHITE);
+    
+    const GPixel bg = GPixel_BLACK;
+    
+    for (int i = 0; i < count; i += 3) {
+        Permuter perm(&tris[i]);
+        for (; !perm.done(); perm.next()) {
+            ctx->clear(GColor_BLACK);
+            GASSERT(check_pixels(bm, bg, 0));
+            
+            ctx->drawTriangle(perm, paint);
+            stats->addTrial(check_pixels(bm, bg, 0));
+        }
+    }
+}
+
+static const char* test_empty_tris(Stats* stats) {
+    const int W = 4;
+    const int H = 4;
+    AutoBitmap dst(W, H, 19);
+    GAutoDelete<GContext> ctx(GContext::Create(dst));
+
+    const GPoint tris[] = {
+        { 0.75f, 0 },   { 1.5f, 2 },    { 0.75f, 4 },
+        { 0, 0.75f },   { 2, 1.5f },    { 4, 0.75f },
+        { 0.1f, 0 },    { 3.1f, 3 },    { 2, 1.5f },
+        { 1, 1 },       { 1, 1 },       { 1, 1 },
+        { 0.5f, 0.5f }, { 0.5f, 0.5f }, { 0.5f, 0.5f },
+    };
+
+    test_tris_dont_draw(ctx, tris, GARRAY_COUNT(tris), stats);
+    return "empty_tris";
+}
+
+static const char* test_clipped_tris(Stats* stats) {
+    const int W = 2;
+    const int H = 2;
+    AutoBitmap dst(W, H, 19);
+    GAutoDelete<GContext> ctx(GContext::Create(dst));
+    
+    const GPoint tris[] = {
+        // these are entirely outside of the device
+        { 0, -1 },  { 10, -1 }, { 5, -5 },
+        { 0, 3 },   { 10, 3 },  { 5, 6 },
+        { 0, 0 },  { 0, 6 },    { -6, 3 },
+        { 3, 0 },  { 3, 6 },    { 6, 3 },
+        // these intersect the device, but miss pixel centers
+        { 1, 2 },   { 0, -8 },    { 2, -8 },
+        { 2, 1 },   { -8, 0 },    { -8, 2 },
+        { 1, 0 },   { 0, 10 },    { 2, 10 },
+        { 0, 1 },   { 10, 0 },    { 10, 2 },
+    };
+    
+    test_tris_dont_draw(ctx, tris, GARRAY_COUNT(tris), stats);
+    return "clipped_tris";
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 typedef const char* (*TestProc)(Stats*);
 
 static const TestProc gTests[] = {
@@ -670,6 +949,7 @@ static const TestProc gTests[] = {
     test_bitmap,
     test_mirror_bitmap, test_bad_xform_bitmaps, test_scaletofit_bitmaps,
     test_clamp_bitmap,
+    test_simple_tris, test_rect_tris, test_empty_tris, test_clipped_tris,
 };
 
 int main(int argc, char** argv) {

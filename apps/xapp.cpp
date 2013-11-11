@@ -11,13 +11,20 @@
 #include "GRect.h"
 #include "GRandom.h"
 #include "GTime.h"
+#include "app_utils.h"
 #include <string>
 #include <math.h>
 
 static bool gAnimateScale;
 
-static GPixel* next_row(const GBitmap& bm, GPixel* row) {
-    return (GPixel*)((const char*)row + bm.fRowBytes);
+static float cos_sin(float angle, float* sinvalue) {
+    float cosvalue = cos(angle);
+    float sv = sqrt(1 - cosvalue * cosvalue);
+    if (angle > 3.14159265359) {
+        sv = -sv;
+    }
+    *sinvalue = sv;
+    return cosvalue;
 }
 
 static void fill_circle(const GBitmap& bm) {
@@ -120,13 +127,21 @@ void Shape::bounce(int w, int h, GMSec now) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static void rand_pt(GPoint* p) {
+    p->set((gRand.nextF() * 2 - 1) * 100,
+           (gRand.nextF() * 2 - 1) * 100);
+}
+
 class RectShape : public Shape {
 public:
     RectShape(const GBitmap& bm, int x, int y) : Shape(x, y) {
         fRect.setXYWH(x, y, bm.width(), bm.height());
         fRect.offset(-fRect.centerX(), -fRect.centerY());
-
         fPaint.setRGB(gRand.nextF(), gRand.nextF(), gRand.nextF());
+    }
+    
+    static Shape* Create(const GBitmap& bm, int x, int y) {
+        return new RectShape(bm, x, y);
     }
     
 protected:
@@ -140,11 +155,75 @@ private:
     GPaint fPaint;
 };
 
+class TriShape : public Shape {
+public:
+    TriShape(const GBitmap& bm, int x, int y) : Shape(x, y) {
+        for (int i = 0; i < 3; ++i) {
+            rand_pt(&fPts[i]);
+        }
+        fPaint.setRGB(gRand.nextF(), gRand.nextF(), gRand.nextF());
+    }
+
+    static Shape* Create(const GBitmap& bm, int x, int y) {
+        return new TriShape(bm, x, y);
+    }
+    
+protected:
+    virtual void onDraw(GContext* ctx) {
+        fPaint.setAlpha(this->getPaint().getAlpha());
+        ctx->drawTriangle(fPts, fPaint);
+    }
+    
+private:
+    GPoint fPts[3];
+    GPaint fPaint;
+};
+
+class PolyShape : public Shape {
+public:
+    PolyShape(const GBitmap& bm, int x, int y) : Shape(x, y) {
+        fCount = gRand.nextRange(3, 20);
+        fPts = new GPoint[fCount];
+        
+        float scaleX = bm.width() * .5f;
+        float scaleY = bm.height() * .5f;
+        for (int i = 0; i < fCount; ++i) {
+            float angle = i * 2 * 3.14159265359 / fCount;
+            float sv, cv;
+            cv = cos_sin(angle, &sv);
+            fPts[i].set(scaleX * sv, scaleY * cv);
+        }
+        fPaint.setRGB(gRand.nextF(), gRand.nextF(), gRand.nextF());
+    }
+    
+    virtual ~PolyShape() {
+        delete[] fPts;
+    }
+
+    static Shape* Create(const GBitmap& bm, int x, int y) {
+        return new PolyShape(bm, x, y);
+    }
+
+protected:
+    virtual void onDraw(GContext* ctx) {
+        fPaint.setAlpha(this->getPaint().getAlpha());
+        ctx->drawConvexPolygon(fPts, fCount, fPaint);
+    }
+    
+private:
+    GPoint* fPts;
+    int     fCount;
+    GPaint  fPaint;
+};
 
 class BitmapShape : public Shape {
 public:
     BitmapShape(const GBitmap& bm, int x, int y) : Shape(x, y), fBM(bm) {}
 
+    static Shape* Create(const GBitmap& bm, int x, int y) {
+        return new BitmapShape(bm, x, y);
+    }
+    
 protected:
     virtual void onDraw(GContext* ctx) {
         ctx->drawBitmap(fBM, -fBM.width() * 0.5f, -fBM.height() * 0.5f,
@@ -155,6 +234,8 @@ private:
     GBitmap fBM;
 };
 
+typedef Shape* (*ShapeFactory)(const GBitmap&, int, int);
+
 class TestWindow : public GXWindow {
     Shape** fShapes;
     int     fShapeCount;
@@ -163,7 +244,7 @@ class TestWindow : public GXWindow {
 public:
     TestWindow(int w, int h,
                char const* const* files, int fileCount,
-               bool doCircles, bool doFade, bool doRects,
+               bool doCircles, bool doFade, ShapeFactory fact,
                int repeat) : GXWindow(w, h) {
         fDoOpaque = true;
         fStartTime = GTime::GetMSec();
@@ -190,11 +271,7 @@ public:
 
         float speed = 300;
         for (int i = 0; i < fShapeCount; ++i) {
-            if (doRects) {
-                fShapes[i] = new RectShape(fBitmaps[i % fBitmapCount], w/2, h/2);
-            } else {
-                fShapes[i] = new BitmapShape(fBitmaps[i % fBitmapCount], w/2, h/2);
-            }
+            fShapes[i] = fact(fBitmaps[i % fBitmapCount], w/2, h/2);
             fShapes[i]->setup(rand.nextF() * speed,
                               rand.nextF() * speed,
                               doFade ? rand.nextF() : 0);
@@ -257,6 +334,7 @@ int main(int argc, char const* const* argv) {
     
     bool docircles = false;
     bool dofade = false;
+    ShapeFactory fact = BitmapShape::Create;
     bool doRects = false;
     int repeat = 1;
     int firstFile = argc;
@@ -275,7 +353,11 @@ int main(int argc, char const* const* argv) {
                     repeat = 1;
                 }
             } else if (!strcmp(argv[i], "--rects")) {
-                doRects = true;
+                fact = RectShape::Create;
+            } else if (!strcmp(argv[i], "--tris")) {
+                fact = TriShape::Create;
+            } else if (!strcmp(argv[i], "--polys")) {
+                fact = PolyShape::Create;
             } else {
                 fprintf(stderr, "unrecognized option %s\n", argv[i]);
                 return -1;
@@ -293,6 +375,6 @@ int main(int argc, char const* const* argv) {
 
     return TestWindow(640, 480,
                       &argv[firstFile], count,
-                      docircles, dofade, doRects, repeat).run();
+                      docircles, dofade, fact, repeat).run();
 }
 

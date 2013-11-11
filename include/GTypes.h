@@ -28,9 +28,13 @@ static inline void g_crash() {
 }
 
 #ifdef NDEBUG
+    #define GRELEASE
     #define GASSERT(pred)
+    #define GDEBUGCODE(code)
 #else
-    #define GASSERT(pred)   do { if (!(pred)) g_crash(); } while (0)
+    #define GDEBUG
+    #define GASSERT(pred)       do { if (!(pred)) g_crash(); } while (0)
+    #define GDEBUGCODE(code)    code
 #endif
 
 /**
@@ -75,6 +79,43 @@ template <typename T> class GAutoDelete {
     
     private:
     T*  fObj;
+};
+
+template <typename T> class GAutoArray {
+public:
+    GAutoArray(int N) : fArray(new T[N]) {}
+    ~GAutoArray() { delete[] fArray; }
+    
+    T* get() const { return fArray; }
+    operator T*() { return fArray; }
+    T* operator->() { return fArray; }
+    
+private:
+    T*  fArray;
+};
+
+template <typename T, size_t N> class GAutoSArray {
+public:
+    GAutoSArray(int count) {
+        if (count > N) {
+            fArray = new T[count];
+        } else {
+            fArray = (T*)fStorage;
+        }
+    }
+    ~GAutoSArray() {
+        if (fArray != (T*)fStorage) {
+            delete[] fArray;
+        }
+    }
+    
+    T* get() const { return fArray; }
+    operator T*() { return fArray; }
+    T* operator->() { return fArray; }
+    
+private:
+    T*  fArray;
+    intptr_t fStorage[(N + 1) * sizeof(T) / sizeof(intptr_t)];
 };
 
 ///////////////////////////////////////////////////////////////////////////////

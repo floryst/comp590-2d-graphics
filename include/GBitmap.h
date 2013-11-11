@@ -17,6 +17,10 @@ public:
     size_t rowBytes() const { return fRowBytes; }
     void* pixels() const { return fPixels; }
 
+    GIRect asIRect() const {
+        return GIRect::MakeWH(fWidth, fHeight);
+    }
+
     GPixel* getAddr(int x, int y) const {
         GASSERT((unsigned)x < (unsigned)fWidth);
         GASSERT((unsigned)y < (unsigned)fHeight);

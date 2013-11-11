@@ -390,6 +390,132 @@ static GContext* image_bitmap_scale_up(const char** name) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static void make_regular_poly(GPoint pts[], int count) {
+    for (int i = 0; i < count; ++i) {
+        float angle = i * 2 * 3.14159265359 / count;
+        pts[i].set(cos(angle), sin(angle));
+    }
+}
+
+static GContext* image_tri_hex(const char** name) {
+    const GColor colors[] = {
+        GColor::Make(1, 1, 0, 0), GColor::Make(1, 1, 1, 0),
+        GColor::Make(1, 0, 1, 0), GColor::Make(1, 0, 1, 1),
+        GColor::Make(1, 0, 0, 1), GColor::Make(1, 1, 0, 1)
+    };
+    
+    const int SCALE = 128;
+    GContext* ctx = GContext::Create(2*SCALE, 2*SCALE);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+    
+    GPaint paint;
+    ctx->translate(SCALE, SCALE);
+    ctx->scale(SCALE, SCALE);
+    
+    GPoint pts[6];
+    make_regular_poly(pts, 6);
+    
+    GPoint tri[3];
+    tri[2].set(0, 0);
+    for (int i = 0; i < 6; ++i) {
+        tri[0] = pts[i];
+        tri[1] = pts[(i + 1) % 6];
+        paint.setColor(colors[i]);
+        ctx->drawTriangle(tri, paint);
+    }
+    
+    *name = "triangle_hex";
+    return ctx;
+}
+
+static GContext* image_tri_radial(const char** name) {
+    const int SCALE = 128;
+    GContext* ctx = GContext::Create(2*SCALE, 2*SCALE);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+    
+    GPaint paint;
+    ctx->translate(SCALE, SCALE);
+    ctx->scale(SCALE, SCALE);
+    
+    GPoint pts[256];
+    make_regular_poly(pts, 256);
+    
+    GPoint tri[3];
+    tri[2].set(0, 0);
+    for (int i = 0; i < 256; ++i) {
+        tri[0] = pts[i];
+        tri[1] = pts[(i + 1) % 256];
+        float c = i / 255.0;
+        paint.setRGB(c, c, c);
+        ctx->drawTriangle(tri, paint);
+    }
+    
+    *name = "triangle_radial";
+    return ctx;
+}
+
+static GContext* image_tri_stack(const char** name) {
+    const int SCALE = 128;
+    GContext* ctx = GContext::Create(2*SCALE, 2*SCALE);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+    
+    GPaint paint;
+    ctx->translate(SCALE, SCALE);
+    ctx->scale(SCALE, SCALE);
+    
+    GRandom rand;
+    GColor color;
+    GPoint pts[30];
+    for (int i = 3; i < 20; ++i) {
+        make_regular_poly(pts, i);
+        
+        make_opaque_color(rand, &color);
+        paint.setColor(color);
+
+        ctx->drawConvexPolygon(pts, i, paint);
+        ctx->scale(0.9f, 0.9f);
+    }
+    *name = "triangle_stack";
+    return ctx;
+}
+
+static void make_midpoint(GPoint* mid, const GPoint& p0, const GPoint& p1) {
+    mid->set((p0.fX + p1.fX) * 0.5f, (p0.fY + p1.fY) * 0.5f);
+}
+
+static void make_center_tri(GPoint pts[3]) {
+    GPoint tmp[3];
+    make_midpoint(&tmp[0], pts[0], pts[1]);
+    make_midpoint(&tmp[1], pts[1], pts[2]);
+    make_midpoint(&tmp[2], pts[2], pts[0]);
+    memcpy(pts, tmp, sizeof(tmp));
+}
+
+static GContext* image_tri_pyramid(const char** name) {
+    GContext* ctx = GContext::Create(256, 256);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+    
+    GPaint paints[2];
+    paints[1].setRGB(1, 1, 1);
+
+    float height = 128 * sqrt(3);
+    GPoint tri[3] = {
+        { 128, 0 }, { 0, height }, { 256, height }
+    };
+    
+    ctx->translate(0, (256 - height) / 2);
+
+    for (int i = 0; i < 10; ++i) {
+        ctx->drawTriangle(tri, paints[i & 1]);
+        make_center_tri(tri);
+    }
+    *name = "triangle_pyramid";
+    return ctx;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+
 static int max(int a, int b) { return a > b ? a : b; }
 
 static int pixel_max_diff(uint32_t p0, uint32_t p1) {
@@ -427,7 +553,8 @@ static const ImageProc gProcs[] = {
     image_bitmap_solid_opaque, image_bitmap_blend_opaque,
     image_bitmap_solid_alpha, image_bitmap_blend_alpha,
     image_rect_trans, image_rect_scale,
-    image_bitmap_scale_down, image_bitmap_mirror, image_bitmap_scale_up
+    image_bitmap_scale_down, image_bitmap_mirror, image_bitmap_scale_up,
+    image_tri_hex, image_tri_radial, image_tri_stack, image_tri_pyramid,
 };
 
 static bool gVerbose;

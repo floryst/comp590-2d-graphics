@@ -12,12 +12,13 @@
 class GBitmap;
 class GColor;
 class GPaint;
+class GPoint;
 class GRect;
 
 class GContext {
 public:
-    GContext() : fSaveCount(0) {}
-    virtual ~GContext() {}
+    GContext();
+    virtual ~GContext();
 
     /**
      *  Push a copy of the CTM onto an internal stack. Subsequent changes to the
@@ -25,28 +26,10 @@ public:
      *  restore() which pops the copy off the internal stack and copies it back
      *  into the CTM.
      */
-    void save() {
-        fSaveCount += 1;
-        this->onSave();
-    }
-    
-    void restore() {
-        if (fSaveCount > 0) {
-            this->onRestore();
-            fSaveCount -= 1;
-        }
-    }
-
+    void save();
+    void restore();
     int getSaveCount() const { return fSaveCount; }
-
-    void restoreToCount(int count) {
-        if (count < 0) {
-            count = 0;
-        }
-        while (this->getSaveCount() > count) {
-            this->restore();
-        }
-    }
+    void restoreToCount(int count);
 
     /**
      *  Preconcat the CTM with the specified translation.
@@ -91,6 +74,19 @@ public:
      *  The bitmap's position and size are transformed by the CTM.
      */
     virtual void drawBitmap(const GBitmap&, float x, float y, const GPaint&) = 0;
+
+    /**
+     *  Fill the triangle with the specified paint, blending using SRC_OVER mode.
+     */
+    virtual void drawTriangle(const GPoint vertices[3], const GPaint&) = 0;
+
+    /**
+     *  Fill the convex polygon with the specified paint, blending using
+     *  SRC_OVER mode. The base implementation calls drawTriangle repeatedly,
+     *  but subclass may override this behavior.
+     */
+    virtual void drawConvexPolygon(const GPoint vertices[], int count,
+                                   const GPaint&);
 
     /**
      *  Create a new context that will draw into the specified bitmap. The

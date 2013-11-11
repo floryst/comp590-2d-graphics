@@ -303,6 +303,50 @@ static void bitmap_scale_bench() {
     bitmap_bench_worker(true);
 }
 
+static double time_triangle(GContext* ctx, const GPoint tri[3], int loopN,
+                            const GPaint& paint) {
+    int loop = 20000 * gRepeatCount;
+    
+    GMSec before = GTime::GetMSec();
+    for (int outer = 0; outer < loopN; ++outer) {
+        for (int i = 0; i < loop; ++i) {
+            ctx->drawTriangle(tri, paint);
+        }
+    }
+    GMSec dur = GTime::GetMSec() - before;
+    return dur * 100.0 / loop;
+}
+
+static void triangle_bench() {
+    const int W = 256;
+    const int H = 256;
+    
+    const struct {
+        const char* fDesc;
+        int         fN;
+        GPoint      fTriangle[3];
+    } gRec[] = {
+        { "triangle_tiny   ", 200, {{ 1.25f, 1 }, { 1, 1.25f }, { 2, 2 }} },
+        { "triangle_nodraw ", 10,  {{ 0.1f, 0 }, { 255.0f, 255 }, { 128.4f, 128.4f }} },
+        { "triangle_big    ", 1,   {{ 128, 0 }, { 0, 256 }, { 256, 256 }} },
+        { "triangle_clipped", 5,   {{ -100, 0 }, { 0, -100 }, { 100, 100 }} },
+    };
+
+    GPaint paint;
+    GAutoDelete<GContext> ctx(GContext::Create(W, H));
+    ctx->clear(GColor::Make(1, 1, 1, 1));
+
+    double total = 0;
+    for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
+        double dur = time_triangle(ctx, gRec[i].fTriangle, gRec[i].fN, paint);
+        if (gVerbose) {
+            printf("%s %8.4f per-pixel\n", gRec[i].fDesc, dur);
+        }
+        total += dur;
+    }
+    printf("%s time %7.4f\n", "triangles", total / GARRAY_COUNT(gRec));
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef void (*BenchProc)();
@@ -312,6 +356,7 @@ static const BenchProc gBenches[] = {
     rect_bench,
     bitmap_bench,
     bitmap_scale_bench,
+    triangle_bench,
 };
 
 int main(int argc, char** argv) {
