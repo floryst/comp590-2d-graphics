@@ -9,7 +9,7 @@
 #include "GTransform.h"
 #include "GRect.h"
 
-void GTransform::precat(const GTransform& other) {
+void GTransform::cat(const GTransform& other) {
 	// compute translations before scales
 	transX = other.scaleX * transX + other.transX;
 	transY = other.scaleY * transY + other.transY;
@@ -20,6 +20,11 @@ void GTransform::precat(const GTransform& other) {
 void GTransform::translate(float tx, float ty) {
 	transX += tx;
 	transY += ty;
+}
+
+void GTransform::pretranslate(float tx, float ty) {
+	transX += tx * scaleX;
+	transY += ty * scaleY;
 }
 
 void GTransform::scale(float sx, float sy) {
@@ -35,8 +40,7 @@ void GTransform::scale(float sx, float sy) {
 
 GPoint GTransform::map(float x, float y) {
 	struct GPoint point;
-	point.x = scaleX * x + transX;
-	point.y = scaleY * y + transY;
+	point.set(scaleX * x + transX, scaleY * y + transY);
 	return point;
 }
 
@@ -44,7 +48,7 @@ GRect GTransform::map(const GRect& rect) {
 	GPoint pt1 = this->map(rect.fLeft, rect.fTop);
 	GPoint pt2 = this->map(rect.fRight, rect.fBottom);
 
-	GRect r = GRect::MakeLTRB(pt1.x, pt1.y, pt2.x, pt2.y);
+	GRect r = GRect::MakeLTRB(pt1.x(), pt1.y(), pt2.x(), pt2.y());
 	// preserve top-left and bottom-right coords
 	r.sort();
 	return r;

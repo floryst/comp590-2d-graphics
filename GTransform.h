@@ -11,10 +11,6 @@
 
 #define EPSILON	0.00000001
 
-struct GPoint {
-	float  x, y;
-};
-
 class GTransform {
 public:
 	float scaleX, scaleY, transX, transY;
@@ -31,12 +27,17 @@ public:
 	 * Concatenates the current matrix with given matrix.
 	 *  (other) * (this)
 	 */
-	void precat(const GTransform& other);
+	void cat(const GTransform& other);
 
 	/**
-	 * Translates a matrix
+	 * Applies a translation operation.
 	 */
 	void translate(float tx, float ty);
+
+	/**
+	 * Applies a translation operation before all other ops.
+	 */
+	void pretranslate(float tx, float ty);
 
 	/**
 	 * Scales a matrix.
