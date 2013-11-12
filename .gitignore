@@ -1,0 +1,10 @@
+# dotfiles
+*.swp
+# binaries
+bench
+image
+test
+# dirs
+expected/
+images/
+spocks/
