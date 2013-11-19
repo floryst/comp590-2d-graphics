@@ -9,8 +9,6 @@
 
 #include "GRect.h"
 
-#define EPSILON	0.00000001
-
 class GTransform {
 public:
 	float scaleX, scaleY, transX, transY;
@@ -27,7 +25,7 @@ public:
 	 * Concatenates the current matrix with given matrix.
 	 *  (other) * (this)
 	 */
-	void cat(const GTransform& other);
+	void cat(const GTransform&);
 
 	/**
 	 * Applies a translation operation.
@@ -50,9 +48,14 @@ public:
 	GPoint map(float x, float y);
 
 	/**
+	 * Perform a linear transformation on the given point.
+	 */
+	GPoint map(const GPoint&);
+
+	/**
 	 * Performs a linear transformation on a rectangle.
 	 */
-	GRect map(const GRect& rect);
+	GRect map(const GRect&);
 
 	/**
 	 * Inverts the transform matrix.

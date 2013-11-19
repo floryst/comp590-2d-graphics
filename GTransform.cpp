@@ -4,10 +4,9 @@
  * COMP 590 -- Fall 2013
  */
 
-#include <algorithm>
-#include <cmath>
 #include "GTransform.h"
 #include "GRect.h"
+#include "GUtils.h"
 
 void GTransform::cat(const GTransform& other) {
 	// compute translations before scales
@@ -42,6 +41,10 @@ GPoint GTransform::map(float x, float y) {
 	struct GPoint point;
 	point.set(scaleX * x + transX, scaleY * y + transY);
 	return point;
+}
+
+GPoint GTransform::map(const GPoint& point) {
+	return this->map(point.x(), point.y());
 }
 
 GRect GTransform::map(const GRect& rect) {

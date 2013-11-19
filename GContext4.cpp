@@ -14,47 +14,22 @@
 #include "GPaint.h"
 #include "GRect.h"
 #include "GTransform.h"
+#include "GUtils.h"
+#include "GEdge.h"
+#include "GBlitter.h"
 
-// Basic rounding of only positive integers
-#define ROUND(x) static_cast<int>((x) + 0.5f)
-#define SCALE_255(x) ROUND((x) * 255.0f)
-
-// Clamps a given channel to normalized boundaries
-static inline float pin_channel(float channel) {
-	if (channel > 1.0f)
-		return 1.0f;
-	if (channel < 0.0f)
-		return 0.0f;
-	return channel;
-}
-
-// Applies SRC_OVER given dest and src pixels
-// Will write the composite pixel to *dst
-// src pixel will be in GPixel format.
-static inline GPixel apply_src_over(GPixel* const dst, const GPixel src, float alpha = 1.0f) {
-	float src_a = GPixel_GetA(src);
-	float transparency = 1.0f - (src_a * alpha) / 255.0f;
-	*dst = GPixel_PackARGB(
-		ROUND(src_a * alpha + transparency * GPixel_GetA(*dst)),
-		ROUND(GPixel_GetR(src) * alpha + transparency * GPixel_GetR(*dst)),
-		ROUND(GPixel_GetG(src) * alpha + transparency * GPixel_GetG(*dst)),
-		ROUND(GPixel_GetB(src) * alpha + transparency * GPixel_GetB(*dst)));
+/**
+ * Sorts edges based on y.
+ */
+int edgeComparator(const void* edge1, const void* edge2) {
+	const GEdge* e1 = reinterpret_cast<const GEdge*>(edge1);
+	const GEdge* e2 = reinterpret_cast<const GEdge*>(edge2);
+	if (e1->topY < e2->topY) return -1;
+	return 1;
 }
 
 static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
-	float alpha, red, green, blue;
-	// clamping
-	alpha = pin_channel(color.fA);
-	red = pin_channel(color.fR);
-	green = pin_channel(color.fG);
-	blue = pin_channel(color.fB);
-
-	// GColor is not in premult space, make it premult
-	GPixel cpixel = GPixel_PackARGB(
-		SCALE_255(alpha),
-		SCALE_255(red * alpha),
-		SCALE_255(green * alpha),
-		SCALE_255(blue * alpha));
+	GPixel pixel = colorToPixel(color);
 
 	int x, y;
 	int bmHeight = bitmap.fHeight;
@@ -67,7 +42,7 @@ static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
 		GPixel* bmPixels = bitmap.fPixels;
 		GPixel* end = bmPixels + bmArea;
 		while (bmPixels != end)
-			*(bmPixels++) = cpixel;
+			*(bmPixels++) = pixel;
 	}
 	// Optimize for well aligned (to sizeof(GPixel)) images
 	else if (bmRowBytes % sizeof(GPixel) == 0) {
@@ -75,7 +50,7 @@ static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
 		int bmRowPixels = bmRowBytes / sizeof(GPixel);
 		for (; bmHeight > 0; bmHeight--) {
 			for (x = 0; x < bmWidth; x++) {
-				*(bmPixels + x) = cpixel;
+				*(bmPixels + x) = pixel;
 			}
 			bmPixels += bmRowPixels;
 		}
@@ -86,7 +61,7 @@ static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
 		for (; bmHeight > 0; bmHeight--) {
 			GPixel* bmoffset = reinterpret_cast<GPixel*>(bmPixels);
 			for (x = 0; x < bmWidth; x++) {
-				*(bmoffset + x) = cpixel;
+				*(bmoffset + x) = pixel;
 			}
 			bmPixels += bmRowBytes;
 		}
@@ -94,19 +69,8 @@ static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
 }
 
 static void src_over_bitmap(const GBitmap& bitmap, const GColor& color) {
-	// clamping
-	float alpha, red, green, blue;
-	alpha = pin_channel(color.fA);
-	red = pin_channel(color.fR);
-	green = pin_channel(color.fG);
-	blue = pin_channel(color.fB);
-
-	GPixel pixel = GPixel_PackARGB(
-		SCALE_255(alpha),
-		SCALE_255(red * alpha),
-		SCALE_255(green * alpha),
-		SCALE_255(blue * alpha));
-
+	GPixel pixel = colorToPixel(color);
+	
 	int x, y;
 	int bmHeight = bitmap.fHeight;
 	int bmWidth = bitmap.fWidth;
@@ -145,7 +109,6 @@ public:
 	}
 
 	~GContext0() {
-		// delete[] will auto-check for null
 		delete[] this->pixref;
 	}
 
@@ -158,23 +121,22 @@ public:
 	}
 
 	void drawRect(const GRect& rect, const GPaint& paint) {
-		GColor color = paint.getColor();
-		if (color.fA <= 0)
+		if (paint.getAlpha() <= 0)
 			return;
 
 		GBitmap subBitmap;
-		GRect trect = this->ctm.map(rect);
-		if (!this->bitmap.extractSubset(trect.round(), &subBitmap))
+		GRect tRect = this->ctm.map(rect);
+		if (!this->bitmap.extractSubset(clampRect(tRect), &subBitmap))
 			return;
 
-		float alpha = pin_channel(color.fA);
-		// opaque color
+		float alpha = GPinToUnitFloat(paint.getAlpha());
 		if (1 == alpha) {
-			clear_bitmap(subBitmap, color);
+			// opaque color
+			clear_bitmap(subBitmap, paint.getColor());
 		}
-		// alpha blending with src_over
 		else {
-			src_over_bitmap(subBitmap, color);
+			// alpha blending with src_over
+			src_over_bitmap(subBitmap, paint.getColor());
 		}
 	}
 
@@ -182,22 +144,20 @@ public:
 		float alpha = paint.getAlpha();
 		if (alpha <= 0)
 			return;
-		alpha = pin_channel(alpha);
+		alpha = GPinToUnitFloat(alpha);
+
+		this->save();
+		this->ctm.pretranslate(x, y);
+		GRect srcRect = GRect::MakeWH(srcBitmap.fWidth, srcBitmap.fHeight);
+		GRect srcTRect = this->ctm.map(srcRect);
 
 		GRect intersection;
-		GRect srcRect = GRect::MakeWH(srcBitmap.fWidth, srcBitmap.fHeight);
-		
-		this->save();
-		this->ctm.translate(x, y);
-		GRect srcTRect = this->ctm.map(srcRect);
-		
 		if (!intersection.setIntersection(
 				GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight), srcTRect)) {
 			this->restore();
 			return;
 		}
-
-		GIRect srcIRect = intersection.round();
+		GIRect srcIRect = clampRect(intersection);
 		int width = srcIRect.width();
 		int height = srcIRect.height();
 		int dstX = srcIRect.fLeft;
@@ -207,88 +167,148 @@ public:
 		int srcRowBytes = srcBitmap.fRowBytes;
 		char* dstPixels = reinterpret_cast<char*>(this->bitmap.fPixels);
 		int dstRowBytes = this->bitmap.fRowBytes;
-
 		GTransform invT = this->ctm.invert();
 
 		int ix, iy;
 		for (iy = dstY; iy < dstY + height; iy++) {
+			GPixel* dst = reinterpret_cast<GPixel*>(dstPixels + dstRowBytes * iy);
 			for (ix = dstX; ix < dstX + width; ix++) {
 				GPoint pt = invT.map(ix + 0.5f, iy + 0.5f);
-				int nx = (int)floorf(pt.x);
-				int ny = (int)floorf(pt.y);
-				GPixel* dst = 
-						reinterpret_cast<GPixel*>(dstPixels + dstRowBytes * iy) + ix;
-				GPixel* src =
-						reinterpret_cast<GPixel*>(srcPixels + srcRowBytes * ny) + nx;
-				apply_src_over(dst, *src, alpha);
+				int nx = static_cast<int>(pt.x());
+				int ny = static_cast<int>(pt.y());
+				GPixel* src = reinterpret_cast<GPixel*>(srcPixels + srcRowBytes * ny) + nx;
+				apply_src_over(dst+ix, *src, alpha);
 			}
 		}
 
 		this->restore();
+	}
+
+	void drawConvexPolygon(const GPoint vertices[], int count, const GPaint& paint) {
+		if (paint.getAlpha() <= 0)
+			return;
+
+		GRect polyRect;
+		GRect bitmapRect = GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight);
+		polyRect.setBounds(vertices, count);
+		GRect polyTRect = this->ctm.map(polyRect);
+		if (!polyTRect.intersects(bitmapRect))
+			return;
+
+		GRect clipBox;
+		clipBox.setIntersection(polyTRect, bitmapRect);
+		if (clipBox.isEmpty())
+			return;
+		
+		GAutoArray<GEdge> edgeList(count);
+		GEdge* edgeArray = edgeList.get();
+
+		GPoint pt1 = this->ctm.map(vertices[0]);
+		GPoint pt2;
+		int i, edgeCount = 0;
+		for (i = 0; i < count-1; i++) {
+			pt2 = this->ctm.map(vertices[i+1]);
+			GEdge edge(pt1, pt2);
+			if (!edge.isHorizontal)
+				edgeArray[edgeCount++] = edge;
+			pt1 = pt2;
+		}
+		// Take care of first and last vertex connection.
+		GEdge edge(pt1, this->ctm.map(vertices[0]));
+		if (!edge.isHorizontal)
+			edgeArray[edgeCount++] = edge;
+		// optimize with custom sort for triangles.
+		qsort(edgeArray, edgeCount, sizeof(GEdge), edgeComparator);
+
+		printf("%i ------------\n", edgeCount);
+		GBlitter::blitConvexPolygon(this->bitmap, edgeArray, clipBox, paint);
+		printf("------------\n");
 
 		/*
-		float alpha = paint.getAlpha();
-		if (alpha <= 0)
-			return;
-		alpha = pin_channel(alpha);
+		int yTop = edgeClamp(clipBox.fTop);
+		int yBottom = edgeClamp(clipBox.fBottom);
+		GBlitter blitter = paint.getAlpha() >= 1 ? 
+			static_cast<GBlitter>(GOpaqueBlitter(this->bitmap, paint)) :
+			static_cast<GBlitter>(GTransparentBlitter(this->bitmap, paint));
+		GEdgeWalker walker1(*edgeArray, clipBox);
+		GEdgeWalker walker2(*(++edgeArray), clipBox);
+		while (yTop < yBottom) {
+			int left = walker1.currentX;
+			int right = walker2.currentX;
+			if (left > right)
+				// GSwap vs std::swap
+				std::swap(left, right);
+			printf("{ line: %i; %i -> %i }\n", yTop, left, right);
+			blitter.draw(left, yTop, right-left+1)
 
-		GRect intersectRect;
-		GRect srcRect = GRect::MakeWH(srcBitmap.fWidth, srcBitmap.fHeight);
-		this->save();
-		this->ctm.translate(x, y);
-		GRect srcRectT = this->ctm.map(srcRect); 
-		if (!intersectRect.setIntersection(
-			GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight), srcRectT)) {
-			this->restore();
-			return;
+			if (!walker1.step())
+				walker1 = GEdgeWalker(*(++edgeArray), clipBox);
+			if (!walker2.step())
+				walker2 = GEdgeWalker(*(++edgeArray), clipBox);
+
+			++yTop;
 		}
-		GIRect irect = intersectRect.round();
+		*/
+	}
+	
+	void drawTriangle(const GPoint vertices[3], const GPaint& paint) {
+		this->drawConvexPolygon(vertices, 3, paint);
+		/*
+		if (paint.getAlpha() <= 0)
+			return;
 
-		int rWidth = irect.width();
-		int rHeight = irect.height();
-		int dstx = irect.fLeft;
-		int dsty = irect.fTop;
+		GRect polyRect;
+		GRect bitmapRect = GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight);
+		polyRect.setBounds(vertices, 3);
+		if (!polyRect.intersects(bitmapRect))
+			return;
 
-		char* srcBmPixels = reinterpret_cast<char*>(srcBitmap.fPixels);
-		int srcBmRowBytes = srcBitmap.fRowBytes;
-		char* dstBmPixels = reinterpret_cast<char*>(this->bitmap.fPixels);
-		int dstBmRowBytes = this->bitmap.fRowBytes;
+		GRect clipBox;
+		clipBox.setIntersection(polyRect, bitmapRect);
+		if (clipBox.isEmpty())
+			return;
 
-		GTransform invT = this->ctm.invert();
+		int listSize = clampRect(clipBox).height();
+		if (listSize == 0)
+			return;
+		int scanLineList[listSize][2];
+		int i;
+		for (i = 0; i < listSize; i++) {
+			scanLineList[i][0] = INT_MAX;
+			scanLineList[i][1] = 0;
+		}
 
-		int maxx = dstx + rWidth, maxy = dsty + rHeight;
-		int ix, iy;
-		for (iy = dsty; iy < maxy; iy++) {
-			GPixel* dst = reinterpret_cast<GPixel*>(dstBmPixels + iy * dstBmRowBytes);
-			for (ix = dstx; ix < maxx; ix++) {
-				GPoint pt = invT.map(ix+0.5f, iy+0.5f);
-				GPixel* src = reinterpret_cast<GPixel*>(srcBmPixels + GRoundToInt(pt.y)*srcBmRowBytes);
-				apply_src_over(dst + ix, *(src + GRoundToInt(pt.x)), alpha);
+		GColor color = paint.getColor();
+		float alpha, red, green, blue;
+		alpha = GPinToUnitFloat(color.fA);
+		red = GPinToUnitFloat(color.fR);
+		green = GPinToUnitFloat(color.fG);
+		blue = GPinToUnitFloat(color.fB);
+
+		// optimize this by sticking it in drawRect?
+		GPixel pixel = GPixel_PackARGB(
+			roundp(alpha * 255.0f),
+			roundp(red * alpha * 255.0f),
+			roundp(green * alpha * 255.0f),
+			roundp(blue * alpha * 255.0f));
+
+		char* dstPixels = reinterpret_cast<char*>(this->bitmap.fPixels);
+		int dstRowBytes = this->bitmap.fRowBytes;
+
+		buildScanLineList(scanLineList, listSize, vertices, clipBox);
+
+		int y = edgeClamp(clipBox.fTop);
+		for (i = 0; i < listSize; i++) {
+			if (scanLineList[i][0] > scanLineList[i][1])
+				return;
+			int count = scanLineList[i][1] - scanLineList[i][0] + 1;
+			int x = scanLineList[i][0];
+			GPixel* dst = reinterpret_cast<GPixel*>(dstPixels + dstRowBytes*y)+x;
+			while (count-- > 0) {
+				apply_src_over(dst++, pixel, alpha);
 			}
 		}
-		this->restore();
-
-		*
-		int maxx = dstx + rWidth, maxy = dsty + rHeight;
-		int ix, iy;
-		for (iy = dsty; iy < maxy; iy++) {
-			GPixel* dst = reinterpret_cast<GPixel*>(dstBmPixels + iy * dstBmRowBytes);
-			// Optimize by inlining transformation code
-			float ty = invT.e*(iy+0.5f) + invT.f;
-			// pull out the tx-x and put it here.
-			float tx = invT.a*(dstx+0.5f)+invT.c - x;
-			GPixel* src = reinterpret_cast<GPixel*>(srcBmPixels + static_cast<int>(ty-y)*srcBmRowBytes);
-			for (ix = dstx; ix < maxx; ix++) {
-				apply_src_over(dst + ix, *(src + static_cast<int>(tx)), alpha);
-				tx += invT.a;
-			}
-		}*/
-	}
-
-	void drawTriangle(const GPoint vertices[3], const GPaint&) {
-	}
-
-	void drawConvexPolygon(const GPoint vertices[], int count, const GPaint&) {
+		*/
 	}
 
 	void translate(float tx, float ty) {
