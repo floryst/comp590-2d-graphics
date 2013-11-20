@@ -417,7 +417,7 @@ static GContext* image_tri_hex(const char** name) {
     
     GPoint tri[3];
     tri[2].set(0, 0);
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 1; ++i) {
         tri[0] = pts[i];
         tri[1] = pts[(i + 1) % 6];
         paint.setColor(colors[i]);
@@ -549,12 +549,12 @@ static double compare_bitmaps(const GBitmap& a, const GBitmap& b, int maxDiff) {
 ///////////////////////////////////////////////////////////////////////////////
 
 static const ImageProc gProcs[] = {
-    image_primaries, image_ramp, image_rand, image_blend, image_frame,
+    /*image_primaries, image_ramp, image_rand, image_blend, image_frame,
     image_bitmap_solid_opaque, image_bitmap_blend_opaque,
     image_bitmap_solid_alpha, image_bitmap_blend_alpha,
     image_rect_trans, image_rect_scale,
-    image_bitmap_scale_down, image_bitmap_mirror, image_bitmap_scale_up,
-    image_tri_hex, image_tri_radial, image_tri_stack, image_tri_pyramid,
+    image_bitmap_scale_down, image_bitmap_mirror, image_bitmap_scale_up,*/
+    image_tri_hex, /*image_tri_radial, image_tri_stack, image_tri_pyramid,*/
 };
 
 static bool gVerbose;

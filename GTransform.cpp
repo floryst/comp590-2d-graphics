@@ -8,14 +8,6 @@
 #include "GRect.h"
 #include "GUtils.h"
 
-void GTransform::cat(const GTransform& other) {
-	// compute translations before scales
-	transX = other.scaleX * transX + other.transX;
-	transY = other.scaleY * transY + other.transY;
-	scaleX = other.scaleX * scaleX;
-	scaleY = other.scaleY * scaleY;
-}
-
 void GTransform::translate(float tx, float ty) {
 	transX += tx;
 	transY += ty;
@@ -27,14 +19,8 @@ void GTransform::pretranslate(float tx, float ty) {
 }
 
 void GTransform::scale(float sx, float sy) {
-	float offsetX = transX;
-	float offsetY = transY;
-	// move to origin
-	this->translate(-offsetX, -offsetY);
 	scaleX *= sx;
 	scaleY *= sy;
-	// move back
-	this->translate(offsetX, offsetY);
 }
 
 GPoint GTransform::map(float x, float y) {
@@ -52,7 +38,6 @@ GRect GTransform::map(const GRect& rect) {
 	GPoint pt2 = this->map(rect.fRight, rect.fBottom);
 
 	GRect r = GRect::MakeLTRB(pt1.x(), pt1.y(), pt2.x(), pt2.y());
-	// preserve top-left and bottom-right coords
 	r.sort();
 	return r;
 }
@@ -60,7 +45,7 @@ GRect GTransform::map(const GRect& rect) {
 GTransform GTransform::invert() {
 	// compute adjoint * 1/det
 	double det = scaleX * scaleY;
-	if (fabs(det) < EPSILON)
+	if (fequals(det, 0.0f))
 		// user should not give us invertible matrix.
 		return GTransform();
 

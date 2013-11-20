@@ -22,18 +22,12 @@ public:
 	}
 
 	/**
-	 * Concatenates the current matrix with given matrix.
-	 *  (other) * (this)
-	 */
-	void cat(const GTransform&);
-
-	/**
 	 * Applies a translation operation.
 	 */
 	void translate(float tx, float ty);
 
 	/**
-	 * Applies a translation operation before all other ops.
+	 * Prepends a translation operation to current transform.
 	 */
 	void pretranslate(float tx, float ty);
 

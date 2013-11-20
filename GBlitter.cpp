@@ -11,12 +11,12 @@
 
 void GBlitter::blitConvexPolygon(const GBitmap& bitmap, const GEdge edges[], const GRect& clipBox, const GPaint& paint) {
 
-	GPixel pixel = colorToPixel(paint.getColor());
+	GPixel pixel = ColorToPixel(paint.getColor());
 
-	int yTop = edgeClamp(clipBox.fTop);
-	int yBottom = edgeClamp(clipBox.fBottom);
-	int xLeft = edgeClamp(clipBox.fLeft);
-	int xRight = edgeClamp(clipBox.fRight);
+	int yTop = Round(clipBox.fTop);
+	int yBottom = Round(clipBox.fBottom);
+	int xLeft = Round(clipBox.fLeft);
+	int xRight = Round(clipBox.fRight);
 
 	GEdgeWalker walker1(*edges, clipBox);
 	GEdgeWalker walker2(*(++edges), clipBox);

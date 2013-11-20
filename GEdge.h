@@ -33,9 +33,13 @@ public:
 private:
 	GEdge edge;
 	GRect clipBox;
-	int stepX;
-	float dx, dy;
-	float error;
+
+	bool steep;
+	int x0, y0, x1, y1;
+	int dx, dy;
+	int error;
+	int x, y, ystep;
+
 };
 
 #endif

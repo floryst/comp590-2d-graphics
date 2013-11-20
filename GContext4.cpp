@@ -29,7 +29,7 @@ int edgeComparator(const void* edge1, const void* edge2) {
 }
 
 static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
-	GPixel pixel = colorToPixel(color);
+	GPixel pixel = ColorToPixel(color);
 
 	int x, y;
 	int bmHeight = bitmap.fHeight;
@@ -69,7 +69,7 @@ static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
 }
 
 static void src_over_bitmap(const GBitmap& bitmap, const GColor& color) {
-	GPixel pixel = colorToPixel(color);
+	GPixel pixel = ColorToPixel(color);
 	
 	int x, y;
 	int bmHeight = bitmap.fHeight;
@@ -126,7 +126,7 @@ public:
 
 		GBitmap subBitmap;
 		GRect tRect = this->ctm.map(rect);
-		if (!this->bitmap.extractSubset(clampRect(tRect), &subBitmap))
+		if (!this->bitmap.extractSubset(ClampRect(tRect), &subBitmap))
 			return;
 
 		float alpha = GPinToUnitFloat(paint.getAlpha());
@@ -147,7 +147,7 @@ public:
 		alpha = GPinToUnitFloat(alpha);
 
 		this->save();
-		this->ctm.pretranslate(x, y);
+		this->ctm.translate(x, y);
 		GRect srcRect = GRect::MakeWH(srcBitmap.fWidth, srcBitmap.fHeight);
 		GRect srcTRect = this->ctm.map(srcRect);
 
@@ -157,7 +157,7 @@ public:
 			this->restore();
 			return;
 		}
-		GIRect srcIRect = clampRect(intersection);
+		GIRect srcIRect = ClampRect(intersection);
 		int width = srcIRect.width();
 		int height = srcIRect.height();
 		int dstX = srcIRect.fLeft;
@@ -174,8 +174,8 @@ public:
 			GPixel* dst = reinterpret_cast<GPixel*>(dstPixels + dstRowBytes * iy);
 			for (ix = dstX; ix < dstX + width; ix++) {
 				GPoint pt = invT.map(ix + 0.5f, iy + 0.5f);
-				int nx = static_cast<int>(pt.x());
-				int ny = static_cast<int>(pt.y());
+				int nx = (int)pt.x();
+				int ny = (int)pt.y();
 				GPixel* src = reinterpret_cast<GPixel*>(srcPixels + srcRowBytes * ny) + nx;
 				apply_src_over(dst+ix, *src, alpha);
 			}
@@ -253,62 +253,6 @@ public:
 	
 	void drawTriangle(const GPoint vertices[3], const GPaint& paint) {
 		this->drawConvexPolygon(vertices, 3, paint);
-		/*
-		if (paint.getAlpha() <= 0)
-			return;
-
-		GRect polyRect;
-		GRect bitmapRect = GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight);
-		polyRect.setBounds(vertices, 3);
-		if (!polyRect.intersects(bitmapRect))
-			return;
-
-		GRect clipBox;
-		clipBox.setIntersection(polyRect, bitmapRect);
-		if (clipBox.isEmpty())
-			return;
-
-		int listSize = clampRect(clipBox).height();
-		if (listSize == 0)
-			return;
-		int scanLineList[listSize][2];
-		int i;
-		for (i = 0; i < listSize; i++) {
-			scanLineList[i][0] = INT_MAX;
-			scanLineList[i][1] = 0;
-		}
-
-		GColor color = paint.getColor();
-		float alpha, red, green, blue;
-		alpha = GPinToUnitFloat(color.fA);
-		red = GPinToUnitFloat(color.fR);
-		green = GPinToUnitFloat(color.fG);
-		blue = GPinToUnitFloat(color.fB);
-
-		// optimize this by sticking it in drawRect?
-		GPixel pixel = GPixel_PackARGB(
-			roundp(alpha * 255.0f),
-			roundp(red * alpha * 255.0f),
-			roundp(green * alpha * 255.0f),
-			roundp(blue * alpha * 255.0f));
-
-		char* dstPixels = reinterpret_cast<char*>(this->bitmap.fPixels);
-		int dstRowBytes = this->bitmap.fRowBytes;
-
-		buildScanLineList(scanLineList, listSize, vertices, clipBox);
-
-		int y = edgeClamp(clipBox.fTop);
-		for (i = 0; i < listSize; i++) {
-			if (scanLineList[i][0] > scanLineList[i][1])
-				return;
-			int count = scanLineList[i][1] - scanLineList[i][0] + 1;
-			int x = scanLineList[i][0];
-			GPixel* dst = reinterpret_cast<GPixel*>(dstPixels + dstRowBytes*y)+x;
-			while (count-- > 0) {
-				apply_src_over(dst++, pixel, alpha);
-			}
-		}
-		*/
 	}
 
 	void translate(float tx, float ty) {
