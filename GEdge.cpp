@@ -37,26 +37,28 @@ GEdgeWalker::GEdgeWalker(const GEdge& e, const GRect& cb) {
 	x1 = edge.botX;
 	y1 = edge.botY;
 
-	steep = abs(y0-y1)>abs(x0-x1);
-	if (steep) {
-		std::swap(x0, y0);
-		std::swap(x1, y1);
-	}
-	if (x0 > x1) {
-		std::swap(x0, x1);
-		std::swap(y0, y1);
-	}
-	dx = x1 - x0;
-	dy = abs(y1-y0);
-	error = dx / 2;
-	y = y0;
-	x = x0;
-	if (y0 < y1)
-		ystep = 1;
-	else
-		ystep = -1;
+	dx = abs(x1-x0);
+	dy = -abs(y1-y0);
+	sx = x0 < x1 ? 1 : -1;
+	error = dx - 1;
+
+	curX = x0;
+	curY = y0;
 }
 
 bool GEdgeWalker::step() {
-	return true;
+	while (true) {
+		if (curX == x1 && curY == y1)
+			return false;
+		int e2 = 2*error;
+		if (e2 >= dy) {
+			error += dy;
+			curX += sx;
+		}
+		if (e2 <= dx) {
+			error += dx;
+			++curY;
+			return true;
+		}
+	}
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Forrest Li
  *
  * COMP 590 -- Fall 2013
@@ -18,10 +18,12 @@
 #include "GEdge.h"
 #include "GBlitter.h"
 
+#define clamp(val,lo,hi)	val < lo ? lo : val > hi ? hi : val
+
 /**
  * Sorts edges based on y.
  */
-int edgeComparator(const void* edge1, const void* edge2) {
+int EdgeComparator(const void* edge1, const void* edge2) {
 	const GEdge* e1 = reinterpret_cast<const GEdge*>(edge1);
 	const GEdge* e2 = reinterpret_cast<const GEdge*>(edge2);
 	if (e1->topY < e2->topY) return -1;
@@ -103,7 +105,7 @@ static void src_over_bitmap(const GBitmap& bitmap, const GColor& color) {
 class GContext0 : public GContext {
 public:
 
-	GContext0(const GBitmap& bitmap, GPixel* pix) {
+	GContext0(const GBitmap& bitmap, GPixel* pix=NULL) {
 		this->pixref = pix;
 		this->bitmap = bitmap;
 	}
@@ -147,7 +149,7 @@ public:
 		alpha = GPinToUnitFloat(alpha);
 
 		this->save();
-		this->ctm.translate(x, y);
+		this->ctm.pretranslate(x, y);
 		GRect srcRect = GRect::MakeWH(srcBitmap.fWidth, srcBitmap.fHeight);
 		GRect srcTRect = this->ctm.map(srcRect);
 
@@ -176,6 +178,9 @@ public:
 				GPoint pt = invT.map(ix + 0.5f, iy + 0.5f);
 				int nx = (int)pt.x();
 				int ny = (int)pt.y();
+				// clamp to srcBitmap's width and height
+				nx = nx < 0 ? 0 : (nx >= srcBitmap.fWidth ? srcBitmap.fWidth-1 : nx);
+				ny = ny < 0 ? 0 : (ny >= srcBitmap.fHeight ? srcBitmap.fHeight-1 : ny);
 				GPixel* src = reinterpret_cast<GPixel*>(srcPixels + srcRowBytes * ny) + nx;
 				apply_src_over(dst+ix, *src, alpha);
 			}
@@ -189,8 +194,8 @@ public:
 			return;
 
 		GRect polyRect;
-		GRect bitmapRect = GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight);
 		polyRect.setBounds(vertices, count);
+		GRect bitmapRect = GRect::MakeWH(this->bitmap.fWidth, this->bitmap.fHeight);
 		GRect polyTRect = this->ctm.map(polyRect);
 		if (!polyTRect.intersects(bitmapRect))
 			return;
@@ -218,37 +223,46 @@ public:
 		if (!edge.isHorizontal)
 			edgeArray[edgeCount++] = edge;
 		// optimize with custom sort for triangles.
-		qsort(edgeArray, edgeCount, sizeof(GEdge), edgeComparator);
+		qsort(edgeArray, edgeCount, sizeof(GEdge), EdgeComparator);
 
-		printf("%i ------------\n", edgeCount);
-		GBlitter::blitConvexPolygon(this->bitmap, edgeArray, clipBox, paint);
-		printf("------------\n");
+		int yTop = Round(edgeArray[0].topY);
+		int yBottom = Round(edgeArray[edgeCount-1].botY);
+		int xLeft = clipBox.fLeft;
+		int xRight = clipBox.fRight;
 
-		/*
-		int yTop = edgeClamp(clipBox.fTop);
-		int yBottom = edgeClamp(clipBox.fBottom);
-		GBlitter blitter = paint.getAlpha() >= 1 ? 
-			static_cast<GBlitter>(GOpaqueBlitter(this->bitmap, paint)) :
-			static_cast<GBlitter>(GTransparentBlitter(this->bitmap, paint));
+		GPixel pixel = ColorToPixel(paint.getColor());
+
+		int rowBytes = this->bitmap.fRowBytes;
+		char* bytePixels = reinterpret_cast<char*>(this->bitmap.fPixels);
+		int low = 0;
+		int high = this->bitmap.fHeight;
+
 		GEdgeWalker walker1(*edgeArray, clipBox);
 		GEdgeWalker walker2(*(++edgeArray), clipBox);
-		while (yTop < yBottom) {
-			int left = walker1.currentX;
-			int right = walker2.currentX;
+		while (yTop < yBottom && yTop < this->bitmap.fHeight) {
+			if (yTop < 0) continue;
+
+			GASSERT(yTop == walker1.curY);
+			GASSERT(yTop == walker2.curY);
+
+			int left = walker1.curX;
+			int right = walker2.curX;
 			if (left > right)
-				// GSwap vs std::swap
 				std::swap(left, right);
+
 			printf("{ line: %i; %i -> %i }\n", yTop, left, right);
-			blitter.draw(left, yTop, right-left+1)
+
+			GPixel* dst = reinterpret_cast<GPixel*>(bytePixels + yTop * rowBytes);
+			while (left < right)
+				*(dst+left++) = pixel;
 
 			if (!walker1.step())
 				walker1 = GEdgeWalker(*(++edgeArray), clipBox);
 			if (!walker2.step())
 				walker2 = GEdgeWalker(*(++edgeArray), clipBox);
 
-			++yTop;
+			yTop++;
 		}
-		*/
 	}
 	
 	void drawTriangle(const GPoint vertices[3], const GPaint& paint) {
@@ -295,7 +309,7 @@ GContext* GContext::Create(const GBitmap& bitmap) {
 		NULL == bitmap.fPixels ||
 		bitmap.fHeight < 0)
 		return NULL;
-	return new GContext0(bitmap, NULL);
+	return new GContext0(bitmap);
 }
 
 GContext* GContext::Create(int width, int height) {

@@ -34,12 +34,9 @@ private:
 	GEdge edge;
 	GRect clipBox;
 
-	bool steep;
 	int x0, y0, x1, y1;
-	int dx, dy;
+	int dx, dy, sx;
 	int error;
-	int x, y, ystep;
-
 };
 
 #endif
