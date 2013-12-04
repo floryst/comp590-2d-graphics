@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <algorithm>
+#include <cmath>
 #include "GUtils.h"
 #include "GPoint.h"
 #include "GEdge.h"
@@ -13,19 +14,19 @@
 GEdge::GEdge(const GPoint& p1, const GPoint& p2) {
 	// Sort top and bottom points.
 	if (p1.y() > p2.y()) {
-		topX = Round(p2.x());
-		topY = Round(p2.y());
-		botX = Round(p1.x());
-		botY = Round(p1.y());
+		topX = p2.x();
+		topY = p2.y();
+		botX = p1.x();
+		botY = p1.y();
 	}
 	else {
-		topX = Round(p1.x());
-		topY = Round(p1.y());
-		botX = Round(p2.x());
-		botY = Round(p2.y());
+		topX = p1.x();
+		topY = p1.y();
+		botX = p2.x();
+		botY = p2.y();
 	}
 
-	isHorizontal = (topY == botY);
+	isHorizontal = (Round(topY) == Round(botY));
 }
 
 GEdgeWalker::GEdgeWalker(const GEdge& e, const GRect& cb) {
@@ -37,28 +38,22 @@ GEdgeWalker::GEdgeWalker(const GEdge& e, const GRect& cb) {
 	x1 = edge.botX;
 	y1 = edge.botY;
 
-	dx = abs(x1-x0);
-	dy = -abs(y1-y0);
-	sx = x0 < x1 ? 1 : -1;
-	error = dx - 1;
+	dx = x1 - x0;
+	dy = y1 - y0;
 
-	curX = x0;
-	curY = y0;
+	curX = 
+
+	/*
+	curY = floorf(y0+0.5f)+0.5f;
+	curX = x0 + slope * (curY - y0);
+
+	endY = floorf(y1-0.5f)+0.5f;
+	endX = x1 + slope * (endY - y1);
+	*/
 }
 
 bool GEdgeWalker::step() {
-	while (true) {
-		if (curX == x1 && curY == y1)
-			return false;
-		int e2 = 2*error;
-		if (e2 >= dy) {
-			error += dy;
-			curX += sx;
-		}
-		if (e2 <= dx) {
-			error += dx;
-			++curY;
-			return true;
-		}
-	}
+	if (fequals(curX, endX) || fequals(curY, endY))
+		return false;
+	
 }

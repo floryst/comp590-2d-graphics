@@ -242,9 +242,6 @@ public:
 		while (yTop < yBottom && yTop < this->bitmap.fHeight) {
 			if (yTop < 0) continue;
 
-			GASSERT(yTop == walker1.curY);
-			GASSERT(yTop == walker2.curY);
-
 			int left = walker1.curX;
 			int right = walker2.curX;
 			if (left > right)

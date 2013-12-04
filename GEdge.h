@@ -13,7 +13,7 @@
 
 class GEdge {
 public:
-	int topX, topY, botX, botY;
+	float topX, topY, botX, botY;
 	bool isHorizontal;
 
 	// When used as a type parameter, must have an empty constructor.
@@ -24,7 +24,7 @@ public:
 
 class GEdgeWalker {
 public:
-	int curX, curY;
+	float curX, curY;
 
 	GEdgeWalker(const GEdge& e, const GRect& cb);
 
@@ -34,9 +34,9 @@ private:
 	GEdge edge;
 	GRect clipBox;
 
-	int x0, y0, x1, y1;
-	int dx, dy, sx;
-	int error;
+	float x0, y0, x1, y1;
+	float slope, dx, dy;
+	float endX, endY;
 };
 
 #endif
