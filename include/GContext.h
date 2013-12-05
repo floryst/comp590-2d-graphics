@@ -42,6 +42,11 @@ public:
     virtual void scale(float sx, float sy) = 0;
 
     /**
+     *  Preconcat the CTM with the specified rotation in radians.
+     */
+    virtual void rotate(float radians) = 0;
+
+    /**
      *  Copy information about the context's backend into the provided
      *  bitmap. Ownership of the pixel memory is not affected by this call,
      *  though the returned pixel address will remain valid for the lifetime

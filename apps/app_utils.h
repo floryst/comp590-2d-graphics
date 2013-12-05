@@ -112,6 +112,13 @@ static void app_fill_ramp(const GBitmap& bm, const GColor colors[4]) {
     }
 }
 
+static void app_make_regular_poly(GPoint pts[], int count) {
+    for (int i = 0; i < count; ++i) {
+        float angle = i * G_2PI / count;
+        pts[i].set(cos(angle), sin(angle));
+    }
+}
+
 void app_draw_convexpoly(GContext*, const GPoint[], int count, const GPaint&);
 void app_draw_convexpoly(GContext*, const GPoint[], int count, const GPaint[]);
 

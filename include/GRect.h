@@ -161,7 +161,14 @@ public:
         }
         return *this;
     }
-    
+
+    void toQuad(GPoint quad[4]) const {
+        quad[0].set(fLeft, fTop);
+        quad[1].set(fRight, fTop);
+        quad[2].set(fRight, fBottom);
+        quad[3].set(fLeft, fBottom);
+    }
+
     GIRect round() const {
         return GIRect::MakeLTRB(GRoundToInt(fLeft), GRoundToInt(fTop),
                                 GRoundToInt(fRight), GRoundToInt(fBottom));
@@ -195,6 +202,12 @@ public:
     static GRect MakeXYWH(float x, float y, float w, float h) {
         GRect r;
         r.setXYWH(x, y, w, h);
+        return r;
+    }
+
+    static GRect MakeBounds(const GPoint pts[], int count) {
+        GRect r;
+        r.setBounds(pts, count);
         return r;
     }
 };

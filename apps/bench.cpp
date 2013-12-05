@@ -10,42 +10,17 @@
 #include "GRect.h"
 #include "GRandom.h"
 #include "GTime.h"
+#include "app_utils.h"
 
 #include <string.h>
 #include <stdlib.h>
 
 static bool gVerbose;
 static int gRepeatCount = 1;
+static int gTargetIndex = -1;
 
-static void assert_unit_float(float x) {
-    GASSERT(x >= 0 && x <= 1);
-}
-
-static int unit_float_to_byte(float x) {
-    GASSERT(x >= 0 && x <= 1);
-    return (int)(x * 255 + 0.5f);
-}
-
-/*
- *  Pins each float value to be [0...1]
- *  Then scales them to bytes, and packs them into a GPixel
- */
-static GPixel color_to_pixel(const GColor& c) {
-    assert_unit_float(c.fA);
-    assert_unit_float(c.fR);
-    assert_unit_float(c.fG);
-    assert_unit_float(c.fB);
-    int a = unit_float_to_byte(c.fA);
-    int r = unit_float_to_byte(c.fR * c.fA);
-    int g = unit_float_to_byte(c.fG * c.fA);
-    int b = unit_float_to_byte(c.fB * c.fA);
-    
-    return GPixel_PackARGB(a, r, g, b);
-}
-
-static GPixel* next_row(const GBitmap& bm, GPixel* row) {
-    return (GPixel*)((char*)row + bm.fRowBytes);
-}
+#define INDEX_LOOP(code)    \
+    do { code } while (index == gTargetIndex);
 
 static double time_erase(GContext* ctx, const GColor& color) {
     GBitmap bm;
@@ -64,7 +39,7 @@ static double time_erase(GContext* ctx, const GColor& color) {
     return dur * 1000.0 / (bm.fWidth * bm.fHeight) / gRepeatCount;
 }
 
-static void clear_bench() {
+static int clear_bench(int index) {
     const int DIM = 1 << 8;
     static const struct {
         int fWidth;
@@ -88,15 +63,18 @@ static void clear_bench() {
             exit(-1);
         }
         
-        double dur = time_erase(ctx, color);
+        double dur;
+        INDEX_LOOP(dur = time_erase(ctx, color);)
         if (gVerbose) {
-            printf("[%5d, %5d] %8.4f per-pixel\n", w, h, dur);
+            printf("[%2d] [%5d, %5d] %8.4f per-pixel\n", index, w, h, dur);
         }
+        index += 1;
         delete ctx;
         
         total += dur;
     }
     printf("Clear time %8.4f per-pixel\n", total / GARRAY_COUNT(gSizes));
+    return index;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -143,7 +121,7 @@ static double time_rect(GContext* ctx, const GRect& rect, float alpha,
     return dur * 1000 * 1000.0 / area;
 }
 
-static void rect_bench() {
+static int rect_bench(int index) {
     const int W = 256;
     const int H = 256;
     static const struct {
@@ -169,40 +147,20 @@ static void rect_bench() {
     double total = 0;
     for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
         GRect r = GRect::MakeWH(gRec[i].fWidth, gRec[i].fHeight);
-        double dur = time_rect(ctx, r, gRec[i].fAlpha, gRec[i].fProc);
+        double dur;
+        INDEX_LOOP(dur = time_rect(ctx, r, gRec[i].fAlpha, gRec[i].fProc);)
         if (gVerbose) {
-            printf("Rect %s %8.4f per-pixel\n", gRec[i].fDesc, dur);
+            printf("[%2d] Rect %s %8.4f per-pixel\n", index, gRec[i].fDesc, dur);
         }
+        index += 1;
         total += dur;
     }
     printf("Rect  time %8.4f per-pixel\n", total / GARRAY_COUNT(gRec));
     delete ctx;
+    return index;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
-static float color_dot(const float c[], float s0, float s1, float s2, float s3) {
-    float res = c[0] * s0 + c[4] * s1 + c[8] * s2 + c[12] * s3;
-    GASSERT(res >= 0);
-    // our bilerp can have a tiny amount of error, resulting in a dot-prod
-    // of slightly greater than 1, so we have to pin here.
-    if (res > 1) {
-        res = 1;
-    }
-    return res;
-}
-
-static GColor lerp4colors(const GColor corners[], float dx, float dy) {
-    float LT = (1 - dx) * (1 - dy);
-    float RT = dx * (1 - dy);
-    float RB = dx * dy;
-    float LB = (1 - dx) * dy;
-    
-    return GColor::Make(color_dot(&corners[0].fA, LT, RT, RB, LB),
-                        color_dot(&corners[0].fR, LT, RT, RB, LB),
-                        color_dot(&corners[0].fG, LT, RT, RB, LB),
-                        color_dot(&corners[0].fB, LT, RT, RB, LB));
-}
 
 /**
  *  colors[] are for each corner's starting color [LT, RT, RB, LB]
@@ -243,7 +201,7 @@ static double time_bitmap(GContext* ctx, const GBitmap& bm, float alpha) {
     return dur * 500 * 1000.0 / (loop * area);
 }
 
-static void bitmap_bench_worker(bool doScale) {
+static int bitmap_bench_worker(int index, bool doScale) {
     const int W = 256;
     const int H = 256;
     
@@ -281,10 +239,12 @@ static void bitmap_bench_worker(bool doScale) {
 
     double total = 0;
     for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
-        double dur = time_bitmap(ctx, bitmaps[i], gRec[i].fGlobalAlpha);
+        double dur;
+        INDEX_LOOP(dur = time_bitmap(ctx, bitmaps[i], gRec[i].fGlobalAlpha);)
         if (gVerbose) {
-            printf("%s %s %8.4f per-pixel\n", name, gRec[i].fDesc, dur);
+            printf("[%2d] %s %s %8.4f per-pixel\n", index, name, gRec[i].fDesc, dur);
         }
+        index += 1;
         total += dur;
     }
     printf("%s time %7.4f per-pixel\n", name, total / GARRAY_COUNT(gRec));
@@ -293,31 +253,36 @@ static void bitmap_bench_worker(bool doScale) {
         free(bitmaps[i].fPixels);
     }
     delete ctx;
+    return index;
 }
 
-static void bitmap_bench() {
-    bitmap_bench_worker(false);
+static int bitmap_bench(int index) {
+    return bitmap_bench_worker(index, false);
 }
 
-static void bitmap_scale_bench() {
-    bitmap_bench_worker(true);
+static int bitmap_scale_bench(int index) {
+    return bitmap_bench_worker(index, true);
 }
 
-static double time_triangle(GContext* ctx, const GPoint tri[3], int loopN,
-                            const GPaint& paint) {
+static double time_poly(GContext* ctx, const GPoint pts[], int ptCount,
+                        int loopN, const GPaint& paint) {
     int loop = 20000 * gRepeatCount;
     
     GMSec before = GTime::GetMSec();
     for (int outer = 0; outer < loopN; ++outer) {
         for (int i = 0; i < loop; ++i) {
-            ctx->drawTriangle(tri, paint);
+            if (3 == ptCount) {
+                ctx->drawTriangle(pts, paint);
+            } else {
+                ctx->drawConvexPolygon(pts, ptCount, paint);
+            }
         }
     }
     GMSec dur = GTime::GetMSec() - before;
     return dur * 100.0 / loop;
 }
 
-static void triangle_bench() {
+static int triangle_bench(int index) {
     const int W = 256;
     const int H = 256;
     
@@ -331,32 +296,144 @@ static void triangle_bench() {
         { "triangle_big    ", 1,   {{ 128, 0 }, { 0, 256 }, { 256, 256 }} },
         { "triangle_clipped", 5,   {{ -100, 0 }, { 0, -100 }, { 100, 100 }} },
     };
+    
+    GPaint paint;
+    GAutoDelete<GContext> ctx(GContext::Create(W, H));
+    ctx->clear(GColor::Make(1, 1, 1, 1));
+    
+    double total = 0;
+    for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
+        double dur;
+        INDEX_LOOP(dur = time_poly(ctx, gRec[i].fTriangle, 3, gRec[i].fN, paint);)
+        if (gVerbose) {
+            printf("[%2d] %s %8.4f per-pixel\n", index, gRec[i].fDesc, dur);
+        }
+        total += dur;
+        index += 1;
+    }
+    printf("%s time %7.4f\n", "triangles", total / GARRAY_COUNT(gRec));
+    return index;
+}
 
+static int poly_bench(int index) {
+    const int W = 256;
+    const int H = 256;
+    const int N = 30;
+    
+    GPoint pts[N];
+    
+    GPaint paint;
+    GAutoDelete<GContext> ctx(GContext::Create(W, H));
+    ctx->clear(GColor::Make(1, 1, 1, 1));
+    
+    ctx->scale(W, H);
+    
+    double total = 0;
+    int loop_count = 0;
+    for (int n = 5; n < N; n += 5) {
+        app_make_regular_poly(pts, n);
+        double dur;
+        INDEX_LOOP(dur = time_poly(ctx, pts, n, 1, paint);)
+        if (gVerbose) {
+            printf("[%2d] polygon_%d %8.4f\n", index, n, dur);
+        }
+        total += dur;
+        index += 1;
+        loop_count += 1;
+    }
+    printf("%s time %7.4f\n", "polygons", total / loop_count);
+    return index;
+}
+
+typedef void (*LoopProc)(GContext*, const void*, const GPaint&, int N);
+
+static void loop_rect(GContext* ctx, const void* obj, const GPaint& paint, int N) {
+    const GRect* rect = (const GRect*)obj;
+    for (int i = 0; i < N; ++i) {
+        ctx->drawRect(*rect, paint);
+    }
+}
+
+static void loop_bitmap(GContext* ctx, const void* obj, const GPaint& paint, int N) {
+    const GBitmap* bitmap = (const GBitmap*)obj;
+    for (int i = 0; i < N; ++i) {
+        ctx->drawBitmap(*bitmap, 0, 0, paint);
+    }
+}
+
+static double time_loop(GContext* ctx, LoopProc proc, const void* obj,
+                        int loopN, const GPaint& paint) {
+    const int loop = 1000 * gRepeatCount;
+
+    GMSec before = GTime::GetMSec();
+    for (int outer = 0; outer < loop; ++outer) {
+        proc(ctx, obj, paint, loopN);
+    }
+    GMSec dur = GTime::GetMSec() - before;
+    return dur * 10.0 / loop;
+}
+
+static int rotate_bench(int index) {
+    const int W = 256;
+    const int H = 256;
+    const int SIZE = 50;
+
+    const GRect rect = GRect::MakeWH(SIZE, SIZE);
+
+    const GColor corners[] = {
+        GColor::Make(1, 1, 0, 0),   GColor::Make(0.5, 0, 1, 0),
+        GColor::Make(0, 0, 0, 1),   GColor::Make(1, 0, 0, 0),
+    };
+    GBitmap bitmap;
+    init(&bitmap, SIZE, SIZE);
+    fill_ramp(bitmap, corners);
+
+    const struct {
+        const char* fDesc;
+        LoopProc    fProc;
+        const void* fObj;
+        float       fAlpha;
+        int         fN;
+    } gRec[] = {
+        { "rotate_rect_opaque   ", loop_rect,   &rect,   1.0, 200 },
+        { "rotate_rect_blend    ", loop_rect,   &rect,   0.5, 200 },
+        { "rotate_bitmap_opaque ", loop_bitmap, &bitmap, 1.0, 20 },
+        { "rotate_bitmap_blend  ", loop_bitmap, &bitmap, 0.5, 20 },
+    };
+    
     GPaint paint;
     GAutoDelete<GContext> ctx(GContext::Create(W, H));
     ctx->clear(GColor::Make(1, 1, 1, 1));
 
+    ctx->rotate(G_PI/32);
+
     double total = 0;
     for (int i = 0; i < GARRAY_COUNT(gRec); ++i) {
-        double dur = time_triangle(ctx, gRec[i].fTriangle, gRec[i].fN, paint);
+        paint.setAlpha(gRec[i].fAlpha);
+
+        double dur;
+        INDEX_LOOP(dur = time_loop(ctx, gRec[i].fProc, gRec[i].fObj, gRec[i].fN, paint);)
         if (gVerbose) {
-            printf("%s %8.4f per-pixel\n", gRec[i].fDesc, dur);
+            printf("[%2d] %s %8.4f\n", index, gRec[i].fDesc, dur);
         }
         total += dur;
+        index += 1;
     }
-    printf("%s time %7.4f\n", "triangles", total / GARRAY_COUNT(gRec));
+    printf("%s time %7.4f\n", "rotate", total / GARRAY_COUNT(gRec));
+    return index;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef void (*BenchProc)();
+typedef int (*BenchProc)(int index);
 
 static const BenchProc gBenches[] = {
     clear_bench,
     rect_bench,
     bitmap_bench,
     bitmap_scale_bench,
-    triangle_bench,
+    triangle_bench, poly_bench,
+    rotate_bench,
 };
 
 int main(int argc, char** argv) {
@@ -369,6 +446,12 @@ int main(int argc, char** argv) {
         }
         if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")) {
             gVerbose = true;
+        } else if (!strcmp(argv[i], "--index") || !strcmp(argv[i], "-i")) {
+            if (i == argc - 1) {
+                fprintf(stderr, "%s needs a valid index\n", argv[i]);
+                exit(-1);
+            }
+            gTargetIndex = (int)atol(argv[++i]);
         } else if (!strcmp(argv[i], "--repeat")) {
             if (i == argc - 1) {
                 fprintf(stderr, "need valid repeat_count # after --repeat\n");
@@ -384,8 +467,9 @@ int main(int argc, char** argv) {
         }
     }
 
+    int index = 0;
     for (int i = 0; i < GARRAY_COUNT(gBenches); ++i) {
-        gBenches[i]();
+        index = gBenches[i](index);
     }
     return 0;
 }

@@ -7,7 +7,7 @@ G_SRC = src/GContext_base.cpp src/GBitmap.cpp src/GTime.cpp src/GPaint.cpp *.cpp
 
 # need libpng to build
 #
-G_INC = -Iinclude -I/opt/local/include -L/opt/local/lib
+G_INC = -Iinclude -Iapps -I/opt/local/include -L/opt/local/lib
 
 all: test bench image
 
@@ -22,13 +22,13 @@ image : apps/image.cpp $(G_SRC)
 
 # needs xwindows to build
 #
-X_INC = -I/usr/X11R6/include -I/usr/X11R6/include/X11 -L/usr/X11R6/lib -L/usr/X11R6/lib/X11
+X_INC = -I/opt/X11/include -L/opt/X11/lib -I/usr/X11R6/include -I/usr/X11R6/include/X11 -L/usr/X11R6/lib -L/usr/X11R6/lib/X11
 
 XAPP_SRC = apps/xapp.cpp src/GXWindow.cpp
 
 xapp: $(XAPP_SRC) $(G_SRC)
-	$(CC_RELEASE) $(X_INC) $(G_INC) $(G_SRC) $(XAPP_SRC) -lpng -lX11 -o xapp
+	$(CC_DEBUG) $(X_INC) $(G_INC) $(G_SRC) $(XAPP_SRC) -lpng -lX11 -o xapp
 
 clean:
-	@rm -rf test bench image xapp *.dSYM
+	@rm -rf test bench image xapp 
 

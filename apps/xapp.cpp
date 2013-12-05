@@ -16,6 +16,7 @@
 #include <math.h>
 
 static bool gAnimateScale;
+static bool gAnimateRad;
 
 static float cos_sin(float angle, float* sinvalue) {
     float cosvalue = cos(angle);
@@ -72,7 +73,10 @@ public:
         } else {
             fDScale = 0;
         }
-    }
+
+        fRad = 0;
+        fDRad = gAnimateRad ? gRand.nextF() * 0.05f : 0;
+}
     virtual ~Shape() {}
 
     void setup(float dx, float dy, float da) {
@@ -87,6 +91,9 @@ public:
         ctx->save();
         ctx->translate(fX, fY);
         ctx->scale(fScale * fFlipX, fScale * fFlipY);
+        if (gAnimateRad) {
+            ctx->rotate(fRad);
+        }
         this->onDraw(ctx);
         ctx->restore();
     }
@@ -100,6 +107,7 @@ private:
     float fDx, fDy, fDa;
     float fFlipX, fFlipY;
     float fScale, fDScale;
+    float fRad, fDRad;
     GMSec  fPrevTime;
 };
 
@@ -123,6 +131,8 @@ void Shape::bounce(int w, int h, GMSec now) {
     ::bounce(fA, fDa, dur, 1);
     ::bounce(fScale, fDScale, dur, 2, 0.25f);
     fPaint.setAlpha(fA);
+
+    fRad += fDRad;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -312,9 +322,9 @@ protected:
         }
     }
     
-    virtual bool onKeyPress(const XEvent& evt) {
+    virtual bool onKeyPress(const XEvent& evt, KeySym sym) {
         fDoOpaque = !fDoOpaque;
-        return this->INHERITED::onKeyPress(evt);
+        return this->INHERITED::onKeyPress(evt, sym);
     }
     
 private:
@@ -345,6 +355,8 @@ int main(int argc, char const* const* argv) {
                 docircles = true;
             } else if (!strcmp(argv[i], "--fade")) {
                 dofade = true;
+            } else if (!strcmp(argv[i], "--rotate")) {
+                gAnimateRad = true;
             } else if (!strcmp(argv[i], "--scale")) {
                 gAnimateScale = true;
             } else if (!strcmp(argv[i], "--repeat") && i < argc - 1) {

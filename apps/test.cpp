@@ -939,6 +939,105 @@ static const char* test_clipped_tris(Stats* stats) {
     return "clipped_tris";
 }
 
+static bool check_bitmap_pixels(const GBitmap& bm, const GPixel expected[],
+                                int testIndex) {
+    for (int y = 0; y < bm.height(); ++y) {
+        for (int x = 0; x < bm.width(); ++x) {
+            GPixel found = *bm.getAddr(x, y);
+            if (*expected != found) {
+                if (gVerbose) {
+                    fprintf(stderr, "check_bitmap_pixels(%d) at (%d, %d) expected %x but got %x\n",
+                            testIndex, x, y, *expected, found);
+                }
+                return false;
+            }
+            expected += 1;
+        }
+    }
+    return true;
+}
+
+static const char* test_rotate_rect(Stats* stats) {
+    AutoBitmap dst(2, 2, 7);
+    GAutoDelete<GContext> ctx(GContext::Create(dst));
+    
+    const GPixel K = 0xFF << GPIXEL_SHIFT_A;
+    const GPixel W = 0xFFFFFFFF;
+    const GPixel all_white[4] = { W, W, W, W };
+    
+    const struct {
+        GRect   fRect;
+        float   fAngle;
+        GPixel  fExpected[4];
+    } rec[] = {
+        { GRect::MakeXYWH( 0,  0, 2, 2),       0, { K, K, K, K } },
+        { GRect::MakeXYWH( 0,  0, 2, 2),   G_2PI, { K, K, K, K } },
+        { GRect::MakeXYWH( 0,  0, 2, 2),  G_PI/2, { W, W, W, W } },
+        { GRect::MakeXYWH(-1,  0, 1, 2), -G_PI/2, { K, K, W, W } },
+        { GRect::MakeXYWH( 0, -1, 2, 1),  G_PI/2, { K, W, K, W } },
+        { GRect::MakeXYWH(-2, -1, 2, 1),    G_PI, { K, K, W, W } },
+    };
+    
+    GPaint paint;
+    for (int i = 0; i < GARRAY_COUNT(rec); ++i) {
+        ctx->clear(GColor::Make(1, 1, 1, 1));   // white
+        GASSERT(check_bitmap_pixels(dst, all_white, -1));
+        
+        ctx->save();
+        ctx->rotate(rec[i].fAngle);
+        ctx->drawRect(rec[i].fRect, paint);
+        ctx->restore();
+        
+        stats->addTrial(check_bitmap_pixels(dst, rec[i].fExpected, i));
+    }
+    return "rect_rotate";
+}
+
+static const char* test_rotate_bitmap(Stats* stats) {
+    const GPixel R = color_to_pixel(GColor::Make(1, 1, 0, 0));
+    const GPixel G = color_to_pixel(GColor::Make(1, 0, 1, 0));
+    const GPixel B = color_to_pixel(GColor::Make(1, 0, 0, 1));
+    const GPixel K = color_to_pixel(GColor::Make(1, 0, 0, 0));
+
+    AutoBitmap src(2, 2);
+    *src.getAddr(0, 0) = R;
+    *src.getAddr(1, 0) = G;
+    *src.getAddr(0, 1) = B;
+    *src.getAddr(1, 1) = K;
+
+    AutoBitmap dst(2, 2, 7);
+    GAutoDelete<GContext> ctx(GContext::Create(dst));
+    
+    const GPixel W = 0xFFFFFFFF;
+    const GPixel all_white[4] = { W, W, W, W };
+    
+    const struct {
+        float   fAngle;
+        GPixel  fExpected[4];
+    } rec[] = {
+        {        0, { R, G, B, K } },
+        {    G_2PI, { R, G, B, K } },
+        {   G_PI/2, { B, R, K, G } },
+        {  -G_PI/2, { G, K, R, B } },
+        {     G_PI, { K, B, G, R } },
+    };
+    
+    GPaint paint;
+    for (int i = 0; i < GARRAY_COUNT(rec); ++i) {
+        ctx->clear(GColor::Make(1, 1, 1, 1));   // white
+        GASSERT(check_bitmap_pixels(dst, all_white, -1));
+        
+        ctx->save();
+        ctx->translate(1, 1);
+        ctx->rotate(rec[i].fAngle);
+        ctx->drawBitmap(src, -1, -1, paint);
+        ctx->restore();
+        
+        stats->addTrial(check_bitmap_pixels(dst, rec[i].fExpected, i));
+    }
+    return "bitmap_rotate";
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef const char* (*TestProc)(Stats*);
@@ -950,6 +1049,7 @@ static const TestProc gTests[] = {
     test_mirror_bitmap, test_bad_xform_bitmaps, test_scaletofit_bitmaps,
     test_clamp_bitmap,
     test_simple_tris, test_rect_tris, test_empty_tris, test_clipped_tris,
+    test_rotate_rect, test_rotate_bitmap,
 };
 
 int main(int argc, char** argv) {

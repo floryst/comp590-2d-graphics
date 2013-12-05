@@ -82,13 +82,14 @@ bool GXWindow::handleEvent(XEvent* evt) {
             }
             return true;
         case KeyPress: {
-            if (this->onKeyPress(*evt)) {
-                return true;
-            }
             char buffer[128];
             KeySym sym;
             memset(buffer, 0, sizeof(buffer));
             (void)XLookupString(&evt->xkey, buffer, sizeof(buffer), &sym, NULL);
+
+            if (this->onKeyPress(*evt, sym)) {
+                return true;
+            }
             if (XK_Escape == sym) {
                 this->setReadyToQuit();
                 return true;

@@ -28,7 +28,7 @@ protected:
 
     virtual void onDraw(GContext*) {}
     virtual void onResize(int w, int h) {}
-    virtual bool onKeyPress(const XEvent&) { return false; }
+    virtual bool onKeyPress(const XEvent&, KeySym) { return false; }
     
     int width() const { return fWidth; }
     int height() const { return fHeight; }

@@ -390,13 +390,6 @@ static GContext* image_bitmap_scale_up(const char** name) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static void make_regular_poly(GPoint pts[], int count) {
-    for (int i = 0; i < count; ++i) {
-        float angle = i * 2 * 3.14159265359 / count;
-        pts[i].set(cos(angle), sin(angle));
-    }
-}
-
 static GContext* image_tri_hex(const char** name) {
     const GColor colors[] = {
         GColor::Make(1, 1, 0, 0), GColor::Make(1, 1, 1, 0),
@@ -413,7 +406,7 @@ static GContext* image_tri_hex(const char** name) {
     ctx->scale(SCALE, SCALE);
     
     GPoint pts[6];
-    make_regular_poly(pts, 6);
+    app_make_regular_poly(pts, 6);
     
     GPoint tri[3];
     tri[2].set(0, 0);
@@ -438,7 +431,7 @@ static GContext* image_tri_radial(const char** name) {
     ctx->scale(SCALE, SCALE);
     
     GPoint pts[256];
-    make_regular_poly(pts, 256);
+    app_make_regular_poly(pts, 256);
     
     GPoint tri[3];
     tri[2].set(0, 0);
@@ -467,7 +460,7 @@ static GContext* image_tri_stack(const char** name) {
     GColor color;
     GPoint pts[30];
     for (int i = 3; i < 20; ++i) {
-        make_regular_poly(pts, i);
+        app_make_regular_poly(pts, i);
         
         make_opaque_color(rand, &color);
         paint.setColor(color);
@@ -513,6 +506,88 @@ static GContext* image_tri_pyramid(const char** name) {
     return ctx;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+static GContext* image_rotate_rects(const char** name) {
+    GContext* ctx = GContext::Create(256, 256);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+
+    const int N = 64;
+
+    GRect r = GRect::MakeXYWH(-3, 0, 6, 128);
+    GPaint paint;
+
+    ctx->translate(128, 128);
+    for (int i = 0; i < N; ++i) {
+        float rad = i * G_2PI / N;
+        paint.setRGB((cos(rad*2) + 1) / 2, (sin(rad) + 1)/2, (cos(rad) + 1) / 2);
+        ctx->save();
+        ctx->rotate(rad);
+        ctx->drawRect(r, paint);
+        ctx->restore();
+    }
+    *name = "rotate_rects";
+    return ctx;
+}
+
+static GContext* image_rotate_spock2(const char** name) {
+    GContext* ctx = GContext::Create(256, 256);
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+    
+    GBitmap bm;
+    if (!GReadBitmapFromFile("spocks/spock2.png", &bm)) {
+        return ctx;
+    }
+    
+    const int N = 16;
+    
+    GPaint paint;
+    const float cx = -bm.width()/2;
+    const float cy = -bm.height()/2;
+    
+    ctx->translate(128, 128);
+    ctx->scale(0.5, 0.5);
+    
+    for (int i = 1; i <= N; ++i) {
+        float rad = i * G_2PI / N;
+        ctx->save();
+        ctx->rotate(rad);
+        paint.setAlpha(0.5);
+        ctx->drawBitmap(bm, cx, cy + 100, paint);
+        ctx->restore();
+    }
+    free(bm.fPixels);
+    
+    *name = "rotate_spock2";
+    return ctx;
+}
+
+#define D2R(degrees)    ((degrees) * G_PI / 180)
+
+static GContext* image_rotate_spock1(const char** name) {
+    GBitmap bm;
+    if (!GReadBitmapFromFile("spocks/spock1.png", &bm)) {
+        return GContext::Create(1, 1);
+    }
+
+    GContext* ctx = GContext::Create(2*bm.width(), 2*bm.height());
+    ctx->clear(GColor::Make(0, 0, 0, 0));
+
+    const float rad[] = { D2R(30), D2R(120), D2R(210), D2R(300) };
+    GPaint paint;
+
+    ctx->translate(bm.width(), bm.height());
+    for (int i = 0; i < GARRAY_COUNT(rad); ++i) {
+        ctx->save();
+        ctx->rotate(rad[i]);
+        ctx->drawBitmap(bm, 0, 0, paint);
+        ctx->restore();
+    }
+    free(bm.fPixels);
+    
+    *name = "rotate_spock1";
+    return ctx;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -555,6 +630,7 @@ static const ImageProc gProcs[] = {
     image_rect_trans, image_rect_scale,
     image_bitmap_scale_down, image_bitmap_mirror, image_bitmap_scale_up,
     image_tri_hex, image_tri_radial, image_tri_stack, image_tri_pyramid,
+    image_rotate_rects, image_rotate_spock1, image_rotate_spock2,
 };
 
 static bool gVerbose;

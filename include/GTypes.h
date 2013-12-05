@@ -43,6 +43,12 @@ static inline void g_crash() {
  */
 #define GARRAY_COUNT(array) (int)(sizeof(array) / sizeof(array[0]))
 
+static inline void GMemset_32(uint32_t buffer[], uint32_t value, int count) {
+    for (int i = 0; i < count; ++i) {
+        buffer[i] = value;
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 template <typename T> void GSwap(T& a, T& b) {
@@ -120,8 +126,36 @@ private:
 
 ///////////////////////////////////////////////////////////////////////////////
 
+#define G_PI    3.14159265359
+#define G_2PI   (2 * 3.14159265359)
+
 static inline float GPinToUnitFloat(float x) {
     return GMax<float>(0, GMin<float>(1, x));
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ *  16.16 fixed-point type.
+ */
+typedef int32_t GFixed;
+
+static const GFixed GFixed_ONE = (1 << 16);
+
+static inline GFixed GFloatToFixed(float x) {
+    return (GFixed)(x * 65536);
+}
+
+static inline int GFixedFloorToInt(GFixed x) {
+    return x >> 16;
+}
+
+static inline int GFixedCeilToInt(GFixed x) {
+    return (x + 0xFFFF) >> 16;
+}
+
+static inline int GFixedRoundToInt(GFixed x) {
+    return (x + 0x8000) >> 16;
 }
 
 #endif
