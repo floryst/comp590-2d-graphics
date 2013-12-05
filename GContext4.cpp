@@ -239,24 +239,31 @@ public:
 
 		GEdgeWalker walker1(*edgeArray, clipBox);
 		GEdgeWalker walker2(*(++edgeArray), clipBox);
+		int cnt = 2;
 		while (yTop < yBottom && yTop < this->bitmap.fHeight) {
 			if (yTop < 0) continue;
 
-			int left = walker1.curX;
-			int right = walker2.curX;
+			int left = Round(walker1.fx);
+			int right = Round(walker2.fx);
 			if (left > right)
 				std::swap(left, right);
 
-			printf("{ line: %i; %i -> %i }\n", yTop, left, right);
+			//printf("{ line: %i; %i -> %i }\n", yTop, left, right);
 
 			GPixel* dst = reinterpret_cast<GPixel*>(bytePixels + yTop * rowBytes);
-			while (left < right)
-				*(dst+left++) = pixel;
+			while (left < right) {
+				apply_src_over(dst+left, pixel);
+				left++;
+			}
 
-			if (!walker1.step())
+			if (!walker1.step()) {
 				walker1 = GEdgeWalker(*(++edgeArray), clipBox);
-			if (!walker2.step())
+				cnt++;
+			}
+			if (!walker2.step()) {
 				walker2 = GEdgeWalker(*(++edgeArray), clipBox);
+				cnt++;
+			}
 
 			yTop++;
 		}

@@ -33,27 +33,21 @@ GEdgeWalker::GEdgeWalker(const GEdge& e, const GRect& cb) {
 	edge = e;
 	clipBox = cb;
 
-	x0 = edge.topX;
-	y0 = edge.topY;
-	x1 = edge.botX;
-	y1 = edge.botY;
+	fx = edge.topX;
+	fy = edge.topY;
+	ex = edge.botX;
+	ey = edge.botY;
 
-	dx = x1 - x0;
-	dy = y1 - y0;
+	slope = (ex-fx) / (ey-fy);
 
-	curX = 
-
-	/*
-	curY = floorf(y0+0.5f)+0.5f;
-	curX = x0 + slope * (curY - y0);
-
-	endY = floorf(y1-0.5f)+0.5f;
-	endX = x1 + slope * (endY - y1);
-	*/
+	float dy = floorf(fy + 0.5f) + 0.5f - fy;
+	fx += slope * dy;
 }
 
 bool GEdgeWalker::step() {
-	if (fequals(curX, endX) || fequals(curY, endY))
-		return false;
-	
+	fx += slope;
+	if (slope > 0)
+		return fx <= ex;
+	else
+		return fx >= ex;
 }

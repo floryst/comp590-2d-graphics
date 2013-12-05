@@ -24,7 +24,7 @@ public:
 
 class GEdgeWalker {
 public:
-	float curX, curY;
+	float fx, fy;
 
 	GEdgeWalker(const GEdge& e, const GRect& cb);
 
@@ -34,9 +34,8 @@ private:
 	GEdge edge;
 	GRect clipBox;
 
-	float x0, y0, x1, y1;
-	float slope, dx, dy;
-	float endX, endY;
+	float ex, ey;
+	float slope;
 };
 
 #endif

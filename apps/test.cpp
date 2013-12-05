@@ -647,7 +647,7 @@ static const char* test_clamp_bitmap(Stats* stats) {
     ctx->getBitmap(&dst);
 
     GPaint paint;
-    for (int dstSize = 50; dstSize <= 50; dstSize++) {
+    for (int dstSize = 1; dstSize <= W; dstSize++) {
         ctx->clear(white);
 
         float scaleX = dstSize * 1.0f / src.width();
@@ -660,10 +660,7 @@ static const char* test_clamp_bitmap(Stats* stats) {
         
         // we should see no black, the border color of origSrc, assuming ctx
         // is correctly clamping their computing x,y values
-		bool flag = check_pixels(dst, whitePixel, 0);
-		if (!flag)
-			printf("%i\n", dstSize);
-        stats->addTrial(flag);
+        stats->addTrial(check_pixels(dst, whitePixel, 0));
     }
     return "clamp_bitmap";
 }
@@ -952,7 +949,7 @@ static const TestProc gTests[] = {
     test_bitmap,
     test_mirror_bitmap, test_bad_xform_bitmaps, test_scaletofit_bitmaps,
     test_clamp_bitmap,
-    //test_simple_tris, test_rect_tris, test_empty_tris, test_clipped_tris,
+    test_simple_tris, test_rect_tris, test_empty_tris, test_clipped_tris,
 };
 
 int main(int argc, char** argv) {
