@@ -239,9 +239,11 @@ public:
 
 		GEdgeWalker walker1(*edgeArray, clipBox);
 		GEdgeWalker walker2(*(++edgeArray), clipBox);
-		int cnt = 2;
 		while (yTop < yBottom && yTop < this->bitmap.fHeight) {
-			if (yTop < 0) continue;
+			if (yTop < 0) {
+				yTop++;
+				continue;
+			}
 
 			int left = Round(walker1.fx);
 			int right = Round(walker2.fx);
@@ -250,19 +252,19 @@ public:
 
 			//printf("{ line: %i; %i -> %i }\n", yTop, left, right);
 
-			GPixel* dst = reinterpret_cast<GPixel*>(bytePixels + yTop * rowBytes);
-			while (left < right) {
-				apply_src_over(dst+left, pixel);
-				left++;
+			if (left >= 0 && right <= this->bitmap.fWidth) {
+				GPixel* dst = reinterpret_cast<GPixel*>(bytePixels + yTop * rowBytes);
+				while (left < right) {
+					apply_src_over(dst+left, pixel);
+					left++;
+				}
 			}
 
-			if (!walker1.step()) {
+			if (!walker1.step(yTop)) {
 				walker1 = GEdgeWalker(*(++edgeArray), clipBox);
-				cnt++;
 			}
-			if (!walker2.step()) {
+			if (!walker2.step(yTop)) {
 				walker2 = GEdgeWalker(*(++edgeArray), clipBox);
-				cnt++;
 			}
 
 			yTop++;

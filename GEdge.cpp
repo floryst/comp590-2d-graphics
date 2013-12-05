@@ -44,10 +44,12 @@ GEdgeWalker::GEdgeWalker(const GEdge& e, const GRect& cb) {
 	fx += slope * dy;
 }
 
-bool GEdgeWalker::step() {
+bool GEdgeWalker::step(int curY) {
 	fx += slope;
 	if (slope > 0)
 		return fx <= ex;
-	else
-		return fx >= ex;
+	if (curY + 1.5 >= ey)
+		return false;
+	return fx >= ex;
+
 }

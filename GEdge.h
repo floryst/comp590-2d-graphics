@@ -28,7 +28,7 @@ public:
 
 	GEdgeWalker(const GEdge& e, const GRect& cb);
 
-	bool step();
+	bool step(int curY);
 
 private:
 	GEdge edge;
