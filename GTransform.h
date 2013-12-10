@@ -11,7 +11,7 @@
 
 class GTransform {
 public:
-	float scaleX, scaleY, transX, transY;
+	float scaleX, scaleY, transX, transY, rotX, rotY;
 
 	/**
 	 * Create the identity matrix.
@@ -19,6 +19,7 @@ public:
 	GTransform() {
 		scaleX = scaleY = 1;
 		transX = transY = 0;
+		rotX = rotY = 0;
 	}
 
 	/**
@@ -27,7 +28,7 @@ public:
 	void translate(float tx, float ty);
 
 	/**
-	 * Prepends a translation operation to current transform.
+	 * Makes a translation operation the first operation.
 	 */
 	void pretranslate(float tx, float ty);
 
@@ -35,6 +36,11 @@ public:
 	 * Scales a matrix.
 	 */
 	void scale(float sx, float sy);
+
+	/**
+	 * Applies a rotation operation.
+	 */
+	void rotate(float radians);
 
 	/**
 	 * Perform a linear transformation on the point (x,y).
@@ -71,8 +77,28 @@ public:
 	/**
 	 * Check to see if transform doesn't change scale.
 	 */
-	bool isOriginalScale() {
+	bool hasNoScale() {
 		return scaleX == 1 && scaleY == 1;
+	}
+
+	/**
+	 * Does transform have rotations.
+	 */
+	bool hasNoRotation() {
+		return rotX == 0 && rotY == 0;
+	}
+
+	/**
+	 * Is transform the identity.
+	 */
+	bool isIdentity() {
+		return 
+			scaleX == 1 &&
+			scaleY == 1 &&
+			rotX == 0 &&
+			rotY == 0 &&
+			transX == 0 &&
+			transY == 0;
 	}
 };
 

@@ -4,6 +4,7 @@
  * COMP 590 -- Fall 2013
  */
 
+#include <cmath>
 #include "GTransform.h"
 #include "GRect.h"
 #include "GUtils.h"
@@ -14,8 +15,8 @@ void GTransform::translate(float tx, float ty) {
 }
 
 void GTransform::pretranslate(float tx, float ty) {
-	transX += tx * scaleX;
-	transY += ty * scaleY;
+	transX += tx * scaleX + ty * rotX;
+	transY += tx * rotY + ty * scaleY;
 }
 
 void GTransform::scale(float sx, float sy) {
@@ -23,9 +24,21 @@ void GTransform::scale(float sx, float sy) {
 	scaleY *= sy;
 }
 
+void GTransform::rotate(float radians) {
+	float _scaleX = scaleX * cosf(radians) - rotY * sinf(radians);
+	float _scaleY = rotX * sinf(radians) + scaleY * cosf(radians);
+	float _rotX = rotX * cosf(radians) - scaleY * sinf(radians);
+	float _rotY = scaleX * sinf(radians) + rotY * cosf(radians);
+
+	scaleX = _scaleX;
+	scaleY = _scaleY;
+	rotX = _rotX;
+	rotY = _rotY;
+}
+
 GPoint GTransform::map(float x, float y) {
 	struct GPoint point;
-	point.set(scaleX * x + transX, scaleY * y + transY);
+	point.set(scaleX * x + rotX * y + transX, rotY * x + scaleY * y + transY);
 	return point;
 }
 
@@ -44,15 +57,17 @@ GRect GTransform::map(const GRect& rect) {
 
 GTransform GTransform::invert() {
 	// compute adjoint * 1/det
-	double det = scaleX * scaleY;
+	double det = scaleX * scaleY - rotX * rotY;
 	if (fequals(det, 0.0f))
 		// user should not give us invertible matrix.
 		return GTransform();
 
-	// Computing inverse is equivalent to scaling by (1/sx,1/sy)
-	// and translating by (-tx/sx,-ty/sy).
 	GTransform t;
-	t.scale(1.0f / scaleX, 1.0f / scaleY);
-	t.translate(-1.0f * transX / scaleX, -1.0f * transY / scaleY);
+	t.scaleX = scaleY / det;
+	t.scaleY = scaleX / det;
+	t.rotX = -rotX / det;
+	t.rotY = -rotY / det;
+	t.transX = (rotX * transY - transX * scaleY) / det;
+	t.transY = (rotY * transX - transY * scaleX) / det;
 	return t;
 }

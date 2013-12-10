@@ -16,7 +16,6 @@
 #include "GTransform.h"
 #include "GUtils.h"
 #include "GEdge.h"
-#include "GBlitter.h"
 
 #define clamp(val,lo,hi)	val < lo ? lo : val > hi ? hi : val
 
@@ -30,30 +29,46 @@ int EdgeComparator(const void* edge1, const void* edge2) {
 	return 1;
 }
 
-static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
+void blitRowDirect(GPixel* dst, int x, int count, GPixel pix) {
+	while (count-- > 0) {
+		*(dst+x) = pix;
+		x++;
+	}
+}
+
+void blitRowSrcOver(GPixel* dst, int x, int count, GPixel pix) {
+	while (count-- > 0) {
+		apply_src_over(dst+x, pix);
+		x++;
+	}
+}
+
+static void fillBitmap(const GBitmap& bitmap, const GColor& color, bool srcOver) {
 	GPixel pixel = ColorToPixel(color);
 
-	int x, y;
+	void (*rowOp)(GPixel*, int, int, GPixel) = NULL;
+	if (srcOver)
+		rowOp = blitRowSrcOver;
+	else
+		rowOp = blitRowDirect;
+
+	int x;
 	int bmHeight = bitmap.fHeight;
 	int bmWidth = bitmap.fWidth;
 	int bmRowBytes = bitmap.fRowBytes;
 
-	// Optimize for full-sized images
 	if (bmWidth * 4 == bmRowBytes) {
 		long bmArea = bmHeight * bmWidth;
 		GPixel* bmPixels = bitmap.fPixels;
 		GPixel* end = bmPixels + bmArea;
-		while (bmPixels != end)
-			*(bmPixels++) = pixel;
+		rowOp(bmPixels, 0, bmArea, pixel);
 	}
 	// Optimize for well aligned (to sizeof(GPixel)) images
 	else if (bmRowBytes % sizeof(GPixel) == 0) {
 		GPixel* bmPixels = bitmap.fPixels;
 		int bmRowPixels = bmRowBytes / sizeof(GPixel);
 		for (; bmHeight > 0; bmHeight--) {
-			for (x = 0; x < bmWidth; x++) {
-				*(bmPixels + x) = pixel;
-			}
+			rowOp(bmPixels, 0, bmWidth, pixel);
 			bmPixels += bmRowPixels;
 		}
 	}
@@ -62,41 +77,7 @@ static void clear_bitmap(const GBitmap& bitmap, const GColor& color) {
 		char* bmPixels = reinterpret_cast<char*>(bitmap.fPixels);
 		for (; bmHeight > 0; bmHeight--) {
 			GPixel* bmoffset = reinterpret_cast<GPixel*>(bmPixels);
-			for (x = 0; x < bmWidth; x++) {
-				*(bmoffset + x) = pixel;
-			}
-			bmPixels += bmRowBytes;
-		}
-	}
-}
-
-static void src_over_bitmap(const GBitmap& bitmap, const GColor& color) {
-	GPixel pixel = ColorToPixel(color);
-	
-	int x, y;
-	int bmHeight = bitmap.fHeight;
-	int bmWidth = bitmap.fWidth;
-	int bmRowBytes = bitmap.fRowBytes;
-
-	// Optimize for well aligned (to sizeof(GPixel)) images
-	if (bmRowBytes % sizeof(GPixel) == 0) {
-		GPixel* bmPixels = bitmap.fPixels;
-		int bmRowPixels = bmRowBytes / sizeof(GPixel);
-		for (; bmHeight > 0; bmHeight--) {
-			for (x = 0; x < bmWidth; x++) {
-				apply_src_over(bmPixels + x, pixel);
-			}
-			bmPixels += bmRowPixels;
-		}
-	}
-	// Worst case, image is not well aligned
-	else {
-		char* bmPixels = reinterpret_cast<char*>(bitmap.fPixels);
-		for (; bmHeight > 0; bmHeight--) {
-			GPixel* bmoffset = reinterpret_cast<GPixel*>(bmPixels);
-			for (x = 0; x < bmWidth; x++) {
-				apply_src_over(bmoffset + x, pixel);
-			}
+			rowOp(bmoffset, 0, bmWidth, pixel);
 			bmPixels += bmRowBytes;
 		}
 	}
@@ -105,8 +86,8 @@ static void src_over_bitmap(const GBitmap& bitmap, const GColor& color) {
 class GContext0 : public GContext {
 public:
 
-	GContext0(const GBitmap& bitmap, GPixel* pix=NULL) {
-		this->pixref = pix;
+	GContext0(const GBitmap& bitmap, GPixel* pixels=NULL) {
+		this->pixref = pixels;
 		this->bitmap = bitmap;
 	}
 
@@ -119,26 +100,34 @@ public:
 	}
 
 	void clear(const GColor& color) {
-		clear_bitmap(this->bitmap, color);
+		fillBitmap(this->bitmap, color, false);
 	}
 
 	void drawRect(const GRect& rect, const GPaint& paint) {
 		if (paint.getAlpha() <= 0)
 			return;
 
-		GBitmap subBitmap;
-		GRect tRect = this->ctm.map(rect);
-		if (!this->bitmap.extractSubset(ClampRect(tRect), &subBitmap))
+		if (this->ctm.hasNoRotation()) {
+			GBitmap subBitmap;
+			if (!bitmap.extractSubset(ctm.map(rect).round(), &subBitmap))
+				return;
+			
+			bool srcOver = paint.getAlpha() < 1.0f;
+			fillBitmap(subBitmap, paint.getColor(), srcOver);
 			return;
-
-		float alpha = GPinToUnitFloat(paint.getAlpha());
-		if (1 == alpha) {
-			// opaque color
-			clear_bitmap(subBitmap, paint.getColor());
 		}
 		else {
-			// alpha blending with src_over
-			src_over_bitmap(subBitmap, paint.getColor());
+			GPoint tl, tr, bl, br;
+			tl.set(rect.fLeft, rect.fTop);
+			tr.set(rect.fRight, rect.fTop);
+			bl.set(rect.fLeft, rect.fBottom);
+			br.set(rect.fRight, rect.fBottom);
+			GPoint vertices[] = {
+				tl, tr, br, bl
+			};
+
+			drawConvexPolygon(vertices, 4, paint);
+
 		}
 	}
 
@@ -150,6 +139,22 @@ public:
 
 		this->save();
 		this->ctm.pretranslate(x, y);
+
+		if (!ctm.hasNoRotation()) {
+			GPoint tl, tr, bl, br;
+			tl.set(0,0);
+			tr.set(srcBitmap.fWidth, 0);
+			bl.set(0, srcBitmap.fHeight);
+			br.set(srcBitmap.fWidth, srcBitmap.fHeight);
+			GPoint vertices[] = {
+				tl, tr, br, bl
+			};
+
+			_drawConvexPolygon(vertices, 4, paint, &srcBitmap);
+			this->restore();
+			return;
+		}
+
 		GRect srcRect = GRect::MakeWH(srcBitmap.fWidth, srcBitmap.fHeight);
 		GRect srcTRect = this->ctm.map(srcRect);
 
@@ -159,7 +164,7 @@ public:
 			this->restore();
 			return;
 		}
-		GIRect srcIRect = ClampRect(intersection);
+		GIRect srcIRect = RoundRect(intersection);
 		int width = srcIRect.width();
 		int height = srcIRect.height();
 		int dstX = srcIRect.fLeft;
@@ -179,17 +184,47 @@ public:
 				int nx = (int)pt.x();
 				int ny = (int)pt.y();
 				// clamp to srcBitmap's width and height
-				nx = nx < 0 ? 0 : (nx >= srcBitmap.fWidth ? srcBitmap.fWidth-1 : nx);
-				ny = ny < 0 ? 0 : (ny >= srcBitmap.fHeight ? srcBitmap.fHeight-1 : ny);
+				nx = clamp(nx, 0, srcBitmap.fWidth-1);
+				ny = clamp(ny, 0, srcBitmap.fHeight-1);
 				GPixel* src = reinterpret_cast<GPixel*>(srcPixels + srcRowBytes * ny) + nx;
 				apply_src_over(dst+ix, *src, alpha);
 			}
 		}
-
 		this->restore();
 	}
 
 	void drawConvexPolygon(const GPoint vertices[], int count, const GPaint& paint) {
+		_drawConvexPolygon(vertices, count, paint);
+	}
+	
+	void drawTriangle(const GPoint vertices[3], const GPaint& paint) {
+		this->drawConvexPolygon(vertices, 3, paint);
+	}
+
+	void translate(float tx, float ty) {
+		this->ctm.translate(tx, ty);
+	}
+
+	void scale(float sx, float sy) {
+		this->ctm.scale(sx, sy);
+	}
+
+	void rotate(float radians) {
+		this->ctm.rotate(radians);
+	}
+
+protected:
+	void onSave() {
+		GTransform saved = this->ctm.clone();
+		this->tmStack.push(saved);
+	}
+
+	void onRestore() {
+		this->ctm = this->tmStack.top();
+		this->tmStack.pop();
+	}
+
+	void _drawConvexPolygon(const GPoint vertices[], int count, const GPaint& paint, const GBitmap* srcBitmap=NULL) {
 		if (paint.getAlpha() <= 0)
 			return;
 
@@ -237,26 +272,43 @@ public:
 		int low = 0;
 		int high = this->bitmap.fHeight;
 
+		GTransform invT;
+		float alpha = 1.0f;
+		if (srcBitmap != NULL) {
+			invT = ctm.invert();
+			alpha = GPinToUnitFloat(paint.getAlpha());
+		}
+
 		GEdgeWalker walker1(*edgeArray, clipBox);
 		GEdgeWalker walker2(*(++edgeArray), clipBox);
 		while (yTop < yBottom && yTop < this->bitmap.fHeight) {
-			if (yTop < 0) {
-				yTop++;
-				continue;
-			}
 
 			int left = Round(walker1.fx);
 			int right = Round(walker2.fx);
 			if (left > right)
 				std::swap(left, right);
 
-			//printf("{ line: %i; %i -> %i }\n", yTop, left, right);
-
-			if (left >= 0 && right <= this->bitmap.fWidth) {
+			if (yTop >= 0) {
+				left = clamp(left, 0, this->bitmap.fWidth);
+				right = clamp(right, 0, this->bitmap.fWidth);
 				GPixel* dst = reinterpret_cast<GPixel*>(bytePixels + yTop * rowBytes);
-				while (left < right) {
-					apply_src_over(dst+left, pixel);
-					left++;
+				if (srcBitmap == NULL) {
+					while (left < right) {
+						apply_src_over(dst+left, pixel);
+						left++;
+					}
+				}
+				else {
+					while (left < right) {
+						GPoint pt = invT.map(left+0.5f, yTop+0.5f);
+						int nx = (int)pt.x();
+						int ny = (int)pt.y();
+						nx = clamp(nx, 0, srcBitmap->fWidth-1);
+						ny = clamp(ny, 0, srcBitmap->fHeight-1);
+						GPixel* src = srcBitmap->getAddr(nx, ny);
+						apply_src_over(dst+left, *src, alpha);
+						left++;
+					}
 				}
 			}
 
@@ -270,29 +322,7 @@ public:
 			yTop++;
 		}
 	}
-	
-	void drawTriangle(const GPoint vertices[3], const GPaint& paint) {
-		this->drawConvexPolygon(vertices, 3, paint);
-	}
 
-	void translate(float tx, float ty) {
-		this->ctm.translate(tx, ty);
-	}
-
-	void scale(float sx, float sy) {
-		this->ctm.scale(sx, sy);
-	}
-
-protected:
-	void onSave() {
-		GTransform saved = this->ctm.clone();
-		this->tmStack.push(saved);
-	}
-
-	void onRestore() {
-		this->ctm = this->tmStack.top();
-		this->tmStack.pop();
-	}
 
 private:
 	// our bitmap

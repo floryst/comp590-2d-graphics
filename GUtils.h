@@ -29,9 +29,9 @@ static inline int Round(float num) {
 }
 
 /**
- * Clamps rectangle to integer boundaries.
+ * Rounds rectangle to integer boundaries.
  */
-static inline GIRect ClampRect(const GRect& rect) {
+static inline GIRect RoundRect(const GRect& rect) {
 	return GIRect::MakeLTRB(
 		Round(rect.fLeft),
 		Round(rect.fTop),

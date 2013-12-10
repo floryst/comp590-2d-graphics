@@ -1,4 +1,4 @@
-CC = g++ -g
+CC = g++ -g -pg
 
 CC_DEBUG = @$(CC)
 CC_RELEASE = @$(CC) -O3 -DNDEBUG
