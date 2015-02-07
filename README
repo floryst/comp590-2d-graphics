@@ -1,0 +1,10 @@
+2D Graphics Library
+===================
+
+This 2D graphics library implements the following:
+	- rectangles
+	- triangles
+	- bitmaps
+	- alpha/opacity
+	- scaling
+	- rotations
