@@ -138,7 +138,7 @@ public:
 		alpha = GPinToUnitFloat(alpha);
 
 		this->save();
-		this->ctm.pretranslate(x, y);
+		this->translate(x, y);
 
 		if (!ctm.hasNoRotation()) {
 			GPoint tl, tr, bl, br;
@@ -202,7 +202,7 @@ public:
 	}
 
 	void translate(float tx, float ty) {
-		this->ctm.translate(tx, ty);
+		this->ctm.pretranslate(tx, ty);
 	}
 
 	void scale(float sx, float sy) {

@@ -20,7 +20,11 @@ void GTransform::pretranslate(float tx, float ty) {
 }
 
 void GTransform::scale(float sx, float sy) {
+	//scaleX *= sx;
+	//scaleY *= sy;
 	scaleX *= sx;
+	rotX *= sy;
+	rotY *= sx;
 	scaleY *= sy;
 }
 

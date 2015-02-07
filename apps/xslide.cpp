@@ -18,6 +18,7 @@
 
 static const float gMaxScale = 32;
 static const float gMinScale = 1 / gMaxScale;
+static const GMSec gSlideDuration = 7 * 1000;
 
 class SlideWindow : public GXWindow {
     const GBitmap*  fBitmaps;
@@ -29,6 +30,9 @@ class SlideWindow : public GXWindow {
     GSlide::Pair*   fSlideArray;
     int             fSlideCount;
     int             fSlideIndex;
+    
+    GMSec           fNextSlideChangeMSec;
+    bool            fAnimating;
 
     void updateTitle() {
         char buffer[100];
@@ -54,6 +58,20 @@ class SlideWindow : public GXWindow {
         ctx->scale(fScale, fScale);
         ctx->translate(-cx, -cy);
     }
+
+    void prevSlide() {
+        if (--fSlideIndex < 0) {
+            fSlideIndex = fSlideCount - 1;
+        }
+        this->initSlide();
+    }
+    
+    void nextSlide() {
+        if (++fSlideIndex >= fSlideCount) {
+            fSlideIndex = 0;
+        }
+        this->initSlide();
+    }
     
 public:
     SlideWindow(int w, int h,
@@ -62,6 +80,9 @@ public:
 
         fBitmaps = bitmaps;
         fBitmapCount = bitmapCount;
+
+        fNextSlideChangeMSec = 0;
+        fAnimating = true;
 
         fSlide = NULL;
         fSlideArray = GSlide::CopyPairArray(&fSlideCount);
@@ -87,12 +108,33 @@ protected:
 
         fSlide->draw(ctx);
 
-        this->requestDraw();
+        if (fAnimating) {
+            this->requestDraw();
+        }
+
+        if (fNextSlideChangeMSec) {
+            GMSec now = GTime::GetMSec();
+            if (now >= fNextSlideChangeMSec) {
+                this->nextSlide();
+                fNextSlideChangeMSec = now + gSlideDuration;
+            }
+        }
     }
     
     virtual bool onKeyPress(const XEvent& evt, KeySym sym) {
-//        printf("----- keypress %lu\n", sym);
+        if (!fAnimating) {
+            fAnimating = true;
+            this->requestDraw();
+        }
+
         switch (sym) {
+            case XK_Return:
+                if (fNextSlideChangeMSec) {
+                    fNextSlideChangeMSec = 0;
+                } else {
+                    fNextSlideChangeMSec = GTime::GetMSec();
+                }
+                return true;
             case XK_Up:
                 if (fScale < gMaxScale) {
                     fScale *= 2;
@@ -106,16 +148,10 @@ protected:
                 }
                 return true;
             case XK_Left:
-                if (--fSlideIndex < 0) {
-                    fSlideIndex = fSlideCount - 1;
-                }
-                this->initSlide();
+                this->prevSlide();
                 return true;
             case XK_Right:
-                if (++fSlideIndex >= fSlideCount) {
-                    fSlideIndex = 0;
-                }
-                this->initSlide();
+                this->nextSlide();
                 return true;
         }
         if ((sym <= 0x7F) && fSlide->handleKey(sym)) {
@@ -123,7 +159,12 @@ protected:
         }
         return this->INHERITED::onKeyPress(evt, sym);
     }
-    
+
+    virtual void onResize(int w, int h) {
+        fAnimating = false;
+        this->INHERITED::onResize(w, h);
+    }
+
 private:
     typedef GXWindow INHERITED;
 };

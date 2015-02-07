@@ -1,4 +1,4 @@
-CC = g++ -g -pg
+CC = g++ -g
 
 CC_DEBUG = @$(CC)
 CC_RELEASE = @$(CC) -O3 -DNDEBUG
@@ -29,6 +29,11 @@ XAPP_SRC = apps/xapp.cpp src/GXWindow.cpp
 xapp: $(XAPP_SRC) $(G_SRC)
 	$(CC_DEBUG) $(X_INC) $(G_INC) $(G_SRC) $(XAPP_SRC) -lpng -lX11 -o xapp
 
+SLIDE_SRC = apps/xslide.cpp src/GXWindow.cpp apps/GSlide.cpp apps/slide/slide_*.cpp
+
+xslide: $(SLIDE_SRC) $(G_SRC)
+	$(CC_DEBUG) $(X_INC) $(G_INC) $(G_SRC) $(SLIDE_SRC) -lpng -lX11 -o xslide
+
 clean:
-	@rm -rf test bench image xapp 
+	@rm -rf test bench image xapp xslide *.dSYM
 
